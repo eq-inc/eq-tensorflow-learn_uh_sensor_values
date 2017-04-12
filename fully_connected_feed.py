@@ -24,6 +24,7 @@ import os.path
 import sys
 import time
 import csv
+import glob
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import uh_sensor_values as uh_sensor_values
@@ -121,11 +122,8 @@ def do_eval(sess,
 def run_training():
     """Train sensor data for a number of steps."""
     # Get the sets of images and labels for training, validation, and test on uh_sensor_values.
-    start_offset_step = offset_step = FLAGS.offset
     read_step = FLAGS.batch_size
     max_read_step = FLAGS.max_steps
-
-    first_data_load = True
 
     with tf.Graph().as_default() as graph:
         # Create a session for running Ops on the Graph.
@@ -182,75 +180,80 @@ def run_training():
             except IOError:
                 pass
 
-        while True:
-            # read data_sets from CVS
-            data_sets = read_sensor_data_sets(FLAGS.input_data_dir, FLAGS.fake_data, offset_step=offset_step, read_step=read_step)
+        data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
 
-            if data_sets != None:
-                # Start the training loop.
-                start_time = time.time()
+        for data_file in data_files:
+            print('%s: ' % data_file)
+            start_offset_step = offset_step = FLAGS.offset
 
-                # Fill a feed dictionary with the actual set of images and labels
-                # for this particular training step.
-                feed_dict = fill_feed_dict(data_sets.train,
-                                     sensor_values_placeholder,
-                                     labels_placeholder)
+            while True:
+                # read data_sets from CVS
+                data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
 
-                # Run one step of the model.  The return values are the activations
-                # from the `train_op` (which is discarded) and the `loss` Op.  To
-                # inspect the values of your Ops or variables, you may include them
-                # in the list passed to sess.run() and the value tensors will be
-                # returned in the tuple from the call.
-                _, loss_value = sess.run([train_op, loss],
-                                   feed_dict=feed_dict)
+                if data_sets != None:
+                    # Start the training loop.
+                    start_time = time.time()
 
-                duration = time.time() - start_time
+                    # Fill a feed dictionary with the actual set of images and labels
+                    # for this particular training step.
+                    feed_dict = fill_feed_dict(data_sets.train,
+                                         sensor_values_placeholder,
+                                         labels_placeholder)
 
-                # Write the summaries and print an overview fairly often.
-                # Print status to stdout.
-                print('Step %d - %d: loss = %.2f (%.3f sec)' % (offset_step, offset_step + read_step, loss_value, duration))
-                # Update the events file.
-                summary_str = sess.run(summary, feed_dict=feed_dict)
-                summary_writer.add_summary(summary_str, offset_step)
-                summary_writer.flush()
+                    # Run one step of the model.  The return values are the activations
+                    # from the `train_op` (which is discarded) and the `loss` Op.  To
+                    # inspect the values of your Ops or variables, you may include them
+                    # in the list passed to sess.run() and the value tensors will be
+                    # returned in the tuple from the call.
+                    _, loss_value = sess.run([train_op, loss],
+                                       feed_dict=feed_dict)
 
-                # Save a checkpoint and evaluate the model periodically.
-                checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
-                saver.save(sess, checkpoint_file)
+                    duration = time.time() - start_time
 
-                with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-                    graph_def = graph.as_graph_def()
-                    fout.write(graph_def.SerializeToString())
+                    # Write the summaries and print an overview fairly often.
+                    # Print status to stdout.
+                    print('Step %d - %d: loss = %.2f (%.3f sec)' % (offset_step, offset_step + read_step, loss_value, duration))
+                    # Update the events file.
+                    summary_str = sess.run(summary, feed_dict=feed_dict)
+                    summary_writer.add_summary(summary_str, offset_step)
+                    summary_writer.flush()
 
-                offset_step += read_step
-                if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
-                    # Evaluate against the training set.
-                    print('Training Data Eval:')
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.train)
-                    # Evaluate against the validation set.
-                    print('Validation Data Eval:')
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.validation)
-                    # Evaluate against the test set.
-                    print('Test Data Eval:')
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.test)
-                    break
-            else:
-                break;
+                    # Save a checkpoint and evaluate the model periodically.
+                    checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
+                    saver.save(sess, checkpoint_file)
 
-def read_sensor_data_sets(train_dir,
-                   one_hot=False,
+                    with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
+                        graph_def = graph.as_graph_def()
+                        fout.write(graph_def.SerializeToString())
+
+                    offset_step += read_step
+                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
+                        # Evaluate against the training set.
+                        print('Training Data Eval:')
+                        do_eval(sess,
+                              eval_correct,
+                              sensor_values_placeholder,
+                              labels_placeholder,
+                              data_sets.train)
+                        # Evaluate against the validation set.
+                        print('Validation Data Eval:')
+                        do_eval(sess,
+                              eval_correct,
+                              sensor_values_placeholder,
+                              labels_placeholder,
+                              data_sets.validation)
+                        # Evaluate against the test set.
+                        print('Test Data Eval:')
+                        do_eval(sess,
+                              eval_correct,
+                              sensor_values_placeholder,
+                              labels_placeholder,
+                              data_sets.test)
+                        break
+                else:
+                    break;
+
+def read_sensor_data_sets(train_data_file,
                    dtype=dtypes.uint8,
                    reshape=False,
                    training=True,
@@ -263,7 +266,7 @@ def read_sensor_data_sets(train_dir,
     combine_data_line_count = FLAGS.combine_data_line_count
     combine_data_line_array = []
 
-    with open(train_dir + '/sensor_data.csv', 'r') as f:
+    with open(train_data_file, 'r') as f:
         csv_data_sets = csv.reader(f)
 
         step_count = 0
@@ -358,7 +361,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--input_data_dir',
       type=str,
-      default='.',
+      default='data',
       help='Directory to put the input data.'
   )
   parser.add_argument(
