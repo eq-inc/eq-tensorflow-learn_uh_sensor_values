@@ -16,15 +16,11 @@ from __future__ import division
 from __future__ import print_function
 
 import math
-
 import tensorflow as tf
 
 NUM_CLASSES = 243   # 1finger has 3 status (straight, soft curve and hard curve) and 1 hand has 5 fingers = 3^5 = 243
 
-# The used sensor are always Acceleration(3), Gyro(3) and Photo-Reflector(8).
-SENSOR_DATA_SIZE = 14
-
-def inference(sensor_values, hidden1_units, hidden2_units):
+def inference(sensor_values, sensor_value_column_count, hidden1_units, hidden2_units):
   """Build the Unlimited Hand - sensor values model up to where it may be used for inference.
 
   Args:
@@ -38,8 +34,8 @@ def inference(sensor_values, hidden1_units, hidden2_units):
   # Hidden 1
   with tf.name_scope('hidden1'):
     weights = tf.Variable(
-        tf.truncated_normal([SENSOR_DATA_SIZE, hidden1_units],
-                            stddev=1.0 / math.sqrt(float(SENSOR_DATA_SIZE))),
+        tf.truncated_normal([sensor_value_column_count, hidden1_units],
+                            stddev=1.0 / math.sqrt(float(sensor_value_column_count))),
         name='weights')
     biases = tf.Variable(tf.zeros([hidden1_units]),
                          name='biases')
