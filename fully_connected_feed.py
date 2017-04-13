@@ -57,8 +57,9 @@ def placeholder_inputs(batch_size):
   # sensor values and label tensors, except the first dimension is now batch_size
   # rather than the full size of the train or test data sets.
   sensor_values_placeholder = tf.placeholder(tf.float32, shape=(batch_size,
-                                                         getParameterDataCount()))
-  labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size))
+                                                         getParameterDataCount()),
+                                                         name="sensor_values_placeholder")
+  labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size), name="labels_placeholder")
   return sensor_values_placeholder, labels_placeholder
 
 
@@ -133,7 +134,9 @@ def run_training():
         sensor_values_placeholder, labels_placeholder = placeholder_inputs(FLAGS.batch_size)
 
         # Build a Graph that computes predictions from the inference model.
-        logits = uh_sensor_values.inference(sensor_values_placeholder,
+        logits = uh_sensor_values.inference(
+                        FLAGS.max_finger_condition ** 5,
+                        sensor_values_placeholder,
                         getParameterDataCount(),
                         FLAGS.hidden1,
                         FLAGS.hidden2)
@@ -223,7 +226,7 @@ def run_training():
                     saver.save(sess, checkpoint_file)
 
                     with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-                        graph_def = graph.as_graph_def()
+                        graph_def = graph.as_graph_def(add_shapes=True)
                         fout.write(graph_def.SerializeToString())
 
                     offset_step += read_step
@@ -398,6 +401,12 @@ if __name__ == '__main__':
       type=int,
       default=0,
       help=''
+  )
+  parser.add_argument(
+      '--max_finger_condition',
+      type=int,
+      default=2,
+      help='0: straight, 1: curve'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
