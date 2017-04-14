@@ -18,9 +18,7 @@ from __future__ import print_function
 import math
 import tensorflow as tf
 
-NUM_CLASSES = 243   # 1finger has 3 status (straight, soft curve and hard curve) and 1 hand has 5 fingers = 3^5 = 243
-
-def inference(sensor_values, sensor_value_column_count, hidden1_units, hidden2_units):
+def inference(class_count, sensor_values, sensor_value_column_count, hidden1_units, hidden2_units):
   """Build the Unlimited Hand - sensor values model up to where it may be used for inference.
 
   Args:
@@ -52,10 +50,10 @@ def inference(sensor_values, sensor_value_column_count, hidden1_units, hidden2_u
   # Linear
   with tf.name_scope('softmax_linear'):
     weights = tf.Variable(
-        tf.truncated_normal([hidden2_units, NUM_CLASSES],
+        tf.truncated_normal([hidden2_units, class_count],
                             stddev=1.0 / math.sqrt(float(hidden2_units))),
         name='weights')
-    biases = tf.Variable(tf.zeros([NUM_CLASSES]),
+    biases = tf.Variable(tf.zeros([class_count]),
                          name='biases')
     logits = tf.matmul(hidden2, weights) + biases
   return logits
@@ -65,7 +63,7 @@ def loss(logits, labels):
   """Calculates the loss from the logits and the labels.
 
   Args:
-    logits: Logits tensor, float - [batch_size, NUM_CLASSES].
+    logits: Logits tensor, float - [batch_size, class_count].
     labels: Labels tensor, int32 - [batch_size].
 
   Returns:
@@ -110,9 +108,9 @@ def evaluation(logits, labels):
   """Evaluate the quality of the logits at predicting the label.
 
   Args:
-    logits: Logits tensor, float - [batch_size, NUM_CLASSES].
+    logits: Logits tensor, float - [batch_size, class_count].
     labels: Labels tensor, int32 - [batch_size], with values in the
-      range [0, NUM_CLASSES).
+      range [0, class_count).
 
   Returns:
     A scalar int32 tensor with the number of examples (out of batch_size)
@@ -124,4 +122,4 @@ def evaluation(logits, labels):
   # of all logits for that example.
   correct = tf.nn.in_top_k(logits, labels, 1)
   # Return the number of true entries.
-  return tf.reduce_sum(tf.cast(correct, tf.int32))
+  return tf.reduce_sum(tf.cast(correct, tf.int32), name="eval_correct")

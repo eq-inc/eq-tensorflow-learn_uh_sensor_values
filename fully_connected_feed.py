@@ -24,6 +24,7 @@ import os.path
 import sys
 import time
 import csv
+import glob
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import uh_sensor_values as uh_sensor_values
@@ -34,6 +35,7 @@ from tensorflow.contrib.learn.python.learn.datasets import base
 from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
+from tensorflow.python.tools import freeze_graph
 
 # Basic model parameters as external flags.
 FLAGS = None
@@ -56,8 +58,9 @@ def placeholder_inputs(batch_size):
   # sensor values and label tensors, except the first dimension is now batch_size
   # rather than the full size of the train or test data sets.
   sensor_values_placeholder = tf.placeholder(tf.float32, shape=(batch_size,
-                                                         getParameterDataCount()))
-  labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size))
+                                                         getParameterDataCount()),
+                                                         name="sensor_values_placeholder")
+  labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size), name="labels_placeholder")
   return sensor_values_placeholder, labels_placeholder
 
 
@@ -121,11 +124,8 @@ def do_eval(sess,
 def run_training():
     """Train sensor data for a number of steps."""
     # Get the sets of images and labels for training, validation, and test on uh_sensor_values.
-    start_offset_step = offset_step = FLAGS.offset
     read_step = FLAGS.batch_size
     max_read_step = FLAGS.max_steps
-
-    first_data_load = True
 
     with tf.Graph().as_default() as graph:
         # Create a session for running Ops on the Graph.
@@ -135,10 +135,19 @@ def run_training():
         sensor_values_placeholder, labels_placeholder = placeholder_inputs(FLAGS.batch_size)
 
         # Build a Graph that computes predictions from the inference model.
-        logits = uh_sensor_values.inference(sensor_values_placeholder,
+        logits = uh_sensor_values.inference(
+                        FLAGS.max_finger_condition ** 5,
+                        sensor_values_placeholder,
                         getParameterDataCount(),
                         FLAGS.hidden1,
                         FLAGS.hidden2)
+
+        # Add the variable initializer Op.
+        # global_variables = tf.global_variables()
+        # local_variables = tf.local_variables()
+        # model_variables = tf.model_variables()
+        # graph_def_init = tf.global_variables_initializer()
+        graph_def = graph.as_graph_def()
 
         # Add to the Graph the Ops for loss calculation.
         loss = uh_sensor_values.loss(logits, labels_placeholder)
@@ -182,75 +191,93 @@ def run_training():
             except IOError:
                 pass
 
-        while True:
-            # read data_sets from CVS
-            data_sets = read_sensor_data_sets(FLAGS.input_data_dir, FLAGS.fake_data, offset_step=offset_step, read_step=read_step)
+        data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
 
-            if data_sets != None:
-                # Start the training loop.
-                start_time = time.time()
+        for data_file in data_files:
+            print('%s: ' % data_file)
+            start_offset_step = offset_step = FLAGS.offset
 
-                # Fill a feed dictionary with the actual set of images and labels
-                # for this particular training step.
-                feed_dict = fill_feed_dict(data_sets.train,
-                                     sensor_values_placeholder,
-                                     labels_placeholder)
+            while True:
+                # read data_sets from CVS
+                data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
 
-                # Run one step of the model.  The return values are the activations
-                # from the `train_op` (which is discarded) and the `loss` Op.  To
-                # inspect the values of your Ops or variables, you may include them
-                # in the list passed to sess.run() and the value tensors will be
-                # returned in the tuple from the call.
-                _, loss_value = sess.run([train_op, loss],
-                                   feed_dict=feed_dict)
+                if data_sets != None:
+                    # Start the training loop.
+                    start_time = time.time()
 
-                duration = time.time() - start_time
+                    # Fill a feed dictionary with the actual set of images and labels
+                    # for this particular training step.
+                    feed_dict = fill_feed_dict(data_sets.train,
+                                         sensor_values_placeholder,
+                                         labels_placeholder)
 
-                # Write the summaries and print an overview fairly often.
-                # Print status to stdout.
-                print('Step %d - %d: loss = %.2f (%.3f sec)' % (offset_step, offset_step + read_step, loss_value, duration))
-                # Update the events file.
-                summary_str = sess.run(summary, feed_dict=feed_dict)
-                summary_writer.add_summary(summary_str, offset_step)
-                summary_writer.flush()
+                    # Run one step of the model.  The return values are the activations
+                    # from the `train_op` (which is discarded) and the `loss` Op.  To
+                    # inspect the values of your Ops or variables, you may include them
+                    # in the list passed to sess.run() and the value tensors will be
+                    # returned in the tuple from the call.
+                    _, loss_value = sess.run([train_op, loss],
+                                       feed_dict=feed_dict)
 
-                # Save a checkpoint and evaluate the model periodically.
-                checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
-                saver.save(sess, checkpoint_file)
+                    duration = time.time() - start_time
 
-                with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-                    graph_def = graph.as_graph_def()
-                    fout.write(graph_def.SerializeToString())
+                    # Write the summaries and print an overview fairly often.
+                    # Print status to stdout.
+                    print('Step %d - %d: loss = %.2f (%.3f sec)' % (offset_step, offset_step + read_step, loss_value, duration))
+                    # Update the events file.
+                    summary_str = sess.run(summary, feed_dict=feed_dict)
+                    summary_writer.add_summary(summary_str, offset_step)
+                    summary_writer.flush()
 
-                offset_step += read_step
-                if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
-                    # Evaluate against the training set.
-                    print('Training Data Eval:')
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.train)
-                    # Evaluate against the validation set.
-                    print('Validation Data Eval:')
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.validation)
-                    # Evaluate against the test set.
-                    print('Test Data Eval:')
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.test)
-                    break
-            else:
-                break;
+                    # Save a checkpoint and evaluate the model periodically.
+                    checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
+                    saver.save(sess, checkpoint_file)
 
-def read_sensor_data_sets(train_dir,
-                   one_hot=False,
+                    with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
+                        fout.write(graph_def.SerializeToString())
+
+                    input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
+                    input_saver_def_path = ""
+                    input_binary = True
+                    output_node_names = "softmax_linear/add,sensor_values_placeholder"
+                    restore_op_name = "save/restore_all" #"Placeholder,Add" # "save/restore_all"
+                    filename_tensor_name = "save/Const:0"
+                    output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
+                    clear_devices = False
+
+                    freeze_graph.freeze_graph(input_graph_path, input_saver_def_path,
+                                              input_binary, checkpoint_file, output_node_names,
+                                              restore_op_name, filename_tensor_name,
+                                              output_graph_path, clear_devices, "")
+
+                    offset_step += read_step
+                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
+                        # Evaluate against the training set.
+                        print('Training Data Eval:')
+                        do_eval(sess,
+                              eval_correct,
+                              sensor_values_placeholder,
+                              labels_placeholder,
+                              data_sets.train)
+                        # Evaluate against the validation set.
+                        print('Validation Data Eval:')
+                        do_eval(sess,
+                              eval_correct,
+                              sensor_values_placeholder,
+                              labels_placeholder,
+                              data_sets.validation)
+                        # Evaluate against the test set.
+                        print('Test Data Eval:')
+                        do_eval(sess,
+                              eval_correct,
+                              sensor_values_placeholder,
+                              labels_placeholder,
+                              data_sets.test)
+                        break
+                else:
+                    break;
+
+def read_sensor_data_sets(train_data_file,
                    dtype=dtypes.uint8,
                    reshape=False,
                    training=True,
@@ -263,7 +290,7 @@ def read_sensor_data_sets(train_dir,
     combine_data_line_count = FLAGS.combine_data_line_count
     combine_data_line_array = []
 
-    with open(train_dir + '/sensor_data.csv', 'r') as f:
+    with open(train_data_file, 'r') as f:
         csv_data_sets = csv.reader(f)
 
         step_count = 0
@@ -358,7 +385,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--input_data_dir',
       type=str,
-      default='.',
+      default='data',
       help='Directory to put the input data.'
   )
   parser.add_argument(
@@ -395,6 +422,12 @@ if __name__ == '__main__':
       type=int,
       default=0,
       help=''
+  )
+  parser.add_argument(
+      '--max_finger_condition',
+      type=int,
+      default=2,
+      help='0: straight, 1: curve'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
