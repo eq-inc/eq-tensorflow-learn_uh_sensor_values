@@ -35,6 +35,7 @@ from tensorflow.contrib.learn.python.learn.datasets import base
 from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
+from tensorflow.python.tools import freeze_graph
 
 # Basic model parameters as external flags.
 FLAGS = None
@@ -141,6 +142,13 @@ def run_training():
                         FLAGS.hidden1,
                         FLAGS.hidden2)
 
+        # Add the variable initializer Op.
+        # global_variables = tf.global_variables()
+        # local_variables = tf.local_variables()
+        # model_variables = tf.model_variables()
+        # graph_def_init = tf.global_variables_initializer()
+        graph_def = graph.as_graph_def()
+
         # Add to the Graph the Ops for loss calculation.
         loss = uh_sensor_values.loss(logits, labels_placeholder)
 
@@ -226,8 +234,21 @@ def run_training():
                     saver.save(sess, checkpoint_file)
 
                     with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-                        graph_def = graph.as_graph_def(add_shapes=True)
                         fout.write(graph_def.SerializeToString())
+
+                    input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
+                    input_saver_def_path = ""
+                    input_binary = True
+                    output_node_names = "softmax_linear/add,sensor_values_placeholder"
+                    restore_op_name = "save/restore_all" #"Placeholder,Add" # "save/restore_all"
+                    filename_tensor_name = "save/Const:0"
+                    output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
+                    clear_devices = False
+
+                    freeze_graph.freeze_graph(input_graph_path, input_saver_def_path,
+                                              input_binary, checkpoint_file, output_node_names,
+                                              restore_op_name, filename_tensor_name,
+                                              output_graph_path, clear_devices, "")
 
                     offset_step += read_step
                     if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
