@@ -20,11 +20,11 @@ from __future__ import print_function
 
 # pylint: disable=missing-docstring
 import argparse
+import csv
+import glob
 import os.path
 import sys
 import time
-import csv
-import glob
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import uh_sensor_values as uh_sensor_values
@@ -35,6 +35,7 @@ from tensorflow.contrib.learn.python.learn.datasets import base
 from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
+from tensorflow.python.framework import errors_impl
 from tensorflow.python.tools import freeze_graph
 
 # Basic model parameters as external flags.
@@ -344,7 +345,10 @@ def get_parameter_data_count():
     return ((3 + 3 + 8) * FLAGS.combine_data_line_count)
 
 def main(_):
-  run_training()
+    if tf.gfile.Exists(FLAGS.log_dir):
+        tf.gfile.DeleteRecursively(FLAGS.log_dir)
+    tf.gfile.MakeDirs(FLAGS.log_dir)
+    run_training()
 
 
 if __name__ == '__main__':
