@@ -20,11 +20,11 @@ from __future__ import print_function
 
 # pylint: disable=missing-docstring
 import argparse
+import csv
+import glob
 import os.path
 import sys
 import time
-import csv
-import glob
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import uh_sensor_values as uh_sensor_values
@@ -35,6 +35,7 @@ from tensorflow.contrib.learn.python.learn.datasets import base
 from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
+from tensorflow.python.framework import errors_impl
 from tensorflow.python.tools import freeze_graph
 
 # Basic model parameters as external flags.
@@ -58,7 +59,7 @@ def placeholder_inputs(batch_size):
   # sensor values and label tensors, except the first dimension is now batch_size
   # rather than the full size of the train or test data sets.
   sensor_values_placeholder = tf.placeholder(tf.float32, shape=(batch_size,
-                                                         getParameterDataCount()),
+                                                         get_parameter_data_count()),
                                                          name="sensor_values_placeholder")
   labels_placeholder = tf.placeholder(tf.int32, shape=(batch_size), name="labels_placeholder")
   return sensor_values_placeholder, labels_placeholder
@@ -138,7 +139,7 @@ def run_training():
         logits = uh_sensor_values.inference(
                         FLAGS.max_finger_condition ** 5,
                         sensor_values_placeholder,
-                        getParameterDataCount(),
+                        get_parameter_data_count(),
                         FLAGS.hidden1,
                         FLAGS.hidden2)
 
@@ -305,7 +306,7 @@ def read_sensor_data_sets(train_data_file,
                 # save combination data in list
                 combine_data_line_array.append(row)
                 if read_step_count < read_step:
-                    if len(combine_data_line_array) == (combine_data_line_count + 1):
+                    if len(combine_data_line_array) == combine_data_line_count:
                         for data_index in xrange(len(combine_data_line_array)):
                             sensor_data_set_array = combine_data_line_array[data_index][0].split('+')
 
@@ -319,9 +320,6 @@ def read_sensor_data_sets(train_data_file,
                                 if training == True:
                                     # use value
                                     value_data_sets = np.append(value_data_sets, combine_data_line_array[data_index][1])
-                            else:
-                                # use for parameter data without last data
-                                sensor_data_sets = np.append(sensor_data_sets, combine_data_line_array[data_index][1])
 
                         step_count+=1
                         read_step_count+=1
@@ -334,7 +332,7 @@ def read_sensor_data_sets(train_data_file,
                     break
 
     if not no_data:
-        new_shape = (read_step_count, getParameterDataCount())
+        new_shape = (read_step_count, get_parameter_data_count())
         sensor_data_sets = np.reshape(sensor_data_sets, new_shape)
         sensor_data_sets.astype(np.float32)
         train = DataSet(sensor_data_sets, value_data_sets, dtype=dtype, reshape=reshape)
@@ -343,11 +341,14 @@ def read_sensor_data_sets(train_data_file,
     else:
         return None
 
-def getParameterDataCount():
-    return ((3 + 3 + 8) * (FLAGS.combine_data_line_count + 1)) + FLAGS.combine_data_line_count
+def get_parameter_data_count():
+    return ((3 + 3 + 8) * FLAGS.combine_data_line_count)
 
 def main(_):
-  run_training()
+    if tf.gfile.Exists(FLAGS.log_dir):
+        tf.gfile.DeleteRecursively(FLAGS.log_dir)
+    tf.gfile.MakeDirs(FLAGS.log_dir)
+    run_training()
 
 
 if __name__ == '__main__':
@@ -420,7 +421,7 @@ if __name__ == '__main__':
   parser.add_argument(
       '--combine_data_line_count',
       type=int,
-      default=0,
+      default=1,
       help=''
   )
   parser.add_argument(
