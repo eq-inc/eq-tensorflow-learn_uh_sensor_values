@@ -36,6 +36,7 @@ from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import errors_impl
+from tensorflow.python.framework import graph_io
 from tensorflow.python.tools import freeze_graph
 
 # Basic model parameters as external flags.
@@ -193,6 +194,7 @@ def run_training():
                 pass
 
         data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+        total_read_step = len(data_files) * FLAGS.offset
 
         for data_file in data_files:
             print('%s: ' % data_file)
@@ -232,26 +234,11 @@ def run_training():
 
                     # Save a checkpoint and evaluate the model periodically.
                     checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
-                    saver.save(sess, checkpoint_file)
-
-                    with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-                        fout.write(graph_def.SerializeToString())
-
-                    input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
-                    input_saver_def_path = ""
-                    input_binary = True
-                    output_node_names = "softmax_linear/add,sensor_values_placeholder"
-                    restore_op_name = "save/restore_all" #"Placeholder,Add" # "save/restore_all"
-                    filename_tensor_name = "save/Const:0"
-                    output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
-                    clear_devices = False
-
-                    freeze_graph.freeze_graph(input_graph_path, input_saver_def_path,
-                                              input_binary, checkpoint_file, output_node_names,
-                                              restore_op_name, filename_tensor_name,
-                                              output_graph_path, clear_devices, "")
+                    checkpoint = saver.save(sess, checkpoint_file, meta_graph_suffix='meta', write_meta_graph=True, global_step=total_read_step, write_state=True, latest_filename='checkpoint_state_name')
 
                     offset_step += read_step
+                    total_read_step += read_step
+
                     if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
                         # Evaluate against the training set.
                         print('Training Data Eval:')
@@ -277,6 +264,29 @@ def run_training():
                         break
                 else:
                     break;
+
+        graph_io.write_graph(sess.graph, FLAGS.saved_data_dir, "saved_data.pb", as_text=False)
+        input_binary = True
+        # with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
+        #     fout.write(graph_def.SerializeToString())
+        # input_binary = True
+
+        input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
+        input_saver = ""#"save/control_dependency:0"
+        output_node_names = "eval_correct"
+        restore_op_name = "save/restore_all" #"Placeholder,Add" # "save/restore_all"
+        filename_tensor_name = "save/Const:0"
+        # restore_op_name = "softmax_linear/add:0" #"Placeholder,Add" # "save/restore_all"
+        # filename_tensor_name = "softmax_linear/biases:0"
+        # filename_tensor_name = "softmax_linear/add:0"
+        output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
+        clear_devices = False
+
+        freeze_graph.freeze_graph(input_graph_path, input_saver,
+                                  input_binary, checkpoint, output_node_names,
+                                  restore_op_name, filename_tensor_name,
+                                  output_graph_path, clear_devices, "", "xentropy_mean")
+
 
 def read_sensor_data_sets(train_data_file,
                    dtype=dtypes.uint8,
@@ -345,9 +355,9 @@ def get_parameter_data_count():
     return ((3 + 3 + 8) * FLAGS.combine_data_line_count)
 
 def main(_):
-    if tf.gfile.Exists(FLAGS.log_dir):
-        tf.gfile.DeleteRecursively(FLAGS.log_dir)
-    tf.gfile.MakeDirs(FLAGS.log_dir)
+    # if tf.gfile.Exists(FLAGS.log_dir):
+    #     tf.gfile.DeleteRecursively(FLAGS.log_dir)
+    # tf.gfile.MakeDirs(FLAGS.log_dir)
     run_training()
 
 
