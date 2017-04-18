@@ -267,18 +267,12 @@ def run_training():
 
         graph_io.write_graph(sess.graph, FLAGS.saved_data_dir, "saved_data.pb", as_text=False)
         input_binary = True
-        # with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-        #     fout.write(graph_def.SerializeToString())
-        # input_binary = True
 
         input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
-        input_saver = ""#"save/control_dependency:0"
+        input_saver = ""
         output_node_names = "eval_correct"
-        restore_op_name = "save/restore_all" #"Placeholder,Add" # "save/restore_all"
+        restore_op_name = "save/restore_all"
         filename_tensor_name = "save/Const:0"
-        # restore_op_name = "softmax_linear/add:0" #"Placeholder,Add" # "save/restore_all"
-        # filename_tensor_name = "softmax_linear/biases:0"
-        # filename_tensor_name = "softmax_linear/add:0"
         output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
         clear_devices = False
 
