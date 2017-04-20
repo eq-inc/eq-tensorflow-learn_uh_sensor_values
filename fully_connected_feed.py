@@ -23,6 +23,7 @@ import argparse
 import csv
 import glob
 import os.path
+import random
 import sys
 import time
 
@@ -144,13 +145,6 @@ def run_training():
                         FLAGS.hidden1,
                         FLAGS.hidden2)
 
-        # Add the variable initializer Op.
-        # global_variables = tf.global_variables()
-        # local_variables = tf.local_variables()
-        # model_variables = tf.model_variables()
-        # graph_def_init = tf.global_variables_initializer()
-        graph_def = graph.as_graph_def()
-
         # Add to the Graph the Ops for loss calculation.
         loss = uh_sensor_values.loss(logits, labels_placeholder)
 
@@ -184,16 +178,13 @@ def run_training():
         except errors.NotFoundError:
             pass
 
-        # if it needs to restore saved data in first step, it restores it to GraphDef
-        if FLAGS.load_saved_data:
-            try:
-                graph_def = graph.as_graph_def()
-                with open(FLAGS.saved_data_dir + "/saved_data.pb", "rb") as fin:
-                    graph_def.ParseFromString(fin.read())
-            except IOError:
-                pass
+        data_files = []
+        if FLAGS.random_learning:
+            max_read_step, out_file_name = create_random_data_file()
+            data_files = [out_file_name]
+        else:
+            data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
 
-        data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
         total_read_step = len(data_files) * FLAGS.offset
 
         for data_file in data_files:
@@ -261,6 +252,7 @@ def run_training():
                               sensor_values_placeholder,
                               labels_placeholder,
                               data_sets.test)
+
                         break
                 else:
                     break;
@@ -280,6 +272,31 @@ def run_training():
                                   input_binary, checkpoint, output_node_names,
                                   restore_op_name, filename_tensor_name,
                                   output_graph_path, clear_devices, "", "xentropy_mean")
+
+def create_random_data_file():
+    read_line = 0
+    out_file_name = 'temp_saved_data.csv'
+    data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+    index_list = list(range(len(data_files)))
+
+    with open(out_file_name, "wb") as fout:
+        read_offset = 0
+        for line in xrange(FLAGS.max_steps):
+            random.shuffle(index_list)
+            for file_index in index_list:
+                with open(data_files[file_index], 'r') as fin:
+                    # 指定されているoffset+これまでに読み込んだ分、読み捨てる
+                    for remove_line in xrange(FLAGS.offset + read_offset):
+                        fin.readline()
+
+                    read_buffer = fin.readline()
+                    if read_buffer != None:
+                        fout.write(bytes(read_buffer, 'UTF-8'))
+                        read_line += 1
+
+            read_offset += 1
+
+    return (read_line, out_file_name)
 
 
 def read_sensor_data_sets(train_data_file,
@@ -433,6 +450,11 @@ if __name__ == '__main__':
       type=int,
       default=2,
       help='0: straight, 1: curve'
+  )
+  parser.add_argument(
+      '--random_learning',
+      default=False,
+      help=''
   )
 
   FLAGS, unparsed = parser.parse_known_args()
