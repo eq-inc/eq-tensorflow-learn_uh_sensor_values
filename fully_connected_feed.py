@@ -1,3 +1,4 @@
+# coding: utf-8
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -23,6 +24,7 @@ import argparse
 import csv
 import glob
 import os.path
+import random
 import sys
 import time
 
@@ -36,11 +38,18 @@ from tensorflow.contrib.learn.python.learn.datasets.mnist import DataSet
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import errors
 from tensorflow.python.framework import errors_impl
+from tensorflow.python.framework import graph_io
 from tensorflow.python.tools import freeze_graph
 
 # Basic model parameters as external flags.
 FLAGS = None
 
+DATA_INDEX_ACCEL = 0
+DATA_INDEX_GYRO = 1
+DATA_INDEX_PHOTO_REFLECTOR = 2
+DATA_INDEX_ANGLE = 3
+DATA_INDEX_TEMPERATURE = 4
+DATA_INDEX_QUATERNION = 5
 
 def placeholder_inputs(batch_size):
   """Generate placeholder variables to represent the input tensors.
@@ -143,13 +152,6 @@ def run_training():
                         FLAGS.hidden1,
                         FLAGS.hidden2)
 
-        # Add the variable initializer Op.
-        # global_variables = tf.global_variables()
-        # local_variables = tf.local_variables()
-        # model_variables = tf.model_variables()
-        # graph_def_init = tf.global_variables_initializer()
-        graph_def = graph.as_graph_def()
-
         # Add to the Graph the Ops for loss calculation.
         loss = uh_sensor_values.loss(logits, labels_placeholder)
 
@@ -174,25 +176,24 @@ def run_training():
         sess.run(init)
 
         # Create a saver for writing training checkpoints.
-        saver = tf.train.Saver()
+        saver = tf.train.Saver(max_to_keep=FLAGS.max_save_checkpoint)
 
         # load checkpoint
+        checkpoint = ''
         checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
         try:
             saver.restore(sess, checkpoint_file)
         except errors.NotFoundError:
             pass
 
-        # if it needs to restore saved data in first step, it restores it to GraphDef
-        if FLAGS.load_saved_data:
-            try:
-                graph_def = graph.as_graph_def()
-                with open(FLAGS.saved_data_dir + "/saved_data.pb", "rb") as fin:
-                    graph_def.ParseFromString(fin.read())
-            except IOError:
-                pass
+        data_files = []
+        if FLAGS.random_learning:
+            max_read_step, out_file_name = create_random_data_file()
+            data_files = [out_file_name]
+        else:
+            data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
 
-        data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+        total_read_step = len(data_files) * FLAGS.offset
 
         for data_file in data_files:
             print('%s: ' % data_file)
@@ -231,28 +232,12 @@ def run_training():
                     summary_writer.flush()
 
                     # Save a checkpoint and evaluate the model periodically.
-                    checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
-                    saver.save(sess, checkpoint_file)
-
-                    with open(FLAGS.saved_data_dir + "/saved_data.pb", "wb") as fout:
-                        fout.write(graph_def.SerializeToString())
-
-                    input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
-                    input_saver_def_path = ""
-                    input_binary = True
-                    output_node_names = "softmax_linear/add,sensor_values_placeholder"
-                    restore_op_name = "save/restore_all" #"Placeholder,Add" # "save/restore_all"
-                    filename_tensor_name = "save/Const:0"
-                    output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
-                    clear_devices = False
-
-                    freeze_graph.freeze_graph(input_graph_path, input_saver_def_path,
-                                              input_binary, checkpoint_file, output_node_names,
-                                              restore_op_name, filename_tensor_name,
-                                              output_graph_path, clear_devices, "")
+                    checkpoint = saver.save(sess, checkpoint_file, meta_graph_suffix='meta', write_meta_graph=True, global_step=total_read_step, write_state=True, latest_filename='checkpoint_state_name')
 
                     offset_step += read_step
-                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
+                    total_read_step += read_step
+
+                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step) or (offset_step + FLAGS.combine_data_line_count >= max_read_step)):
                         # Evaluate against the training set.
                         print('Training Data Eval:')
                         do_eval(sess,
@@ -274,9 +259,52 @@ def run_training():
                               sensor_values_placeholder,
                               labels_placeholder,
                               data_sets.test)
+
                         break
                 else:
                     break;
+
+        graph_io.write_graph(sess.graph, FLAGS.saved_data_dir, "saved_data.pb", as_text=False)
+        input_binary = True
+
+        input_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data.pb")
+        input_saver = ""
+        output_node_names = "eval_correct"
+        restore_op_name = "save/restore_all"
+        filename_tensor_name = "save/Const:0"
+        output_graph_path = os.path.join(FLAGS.saved_data_dir, "saved_data_out.pb")
+        clear_devices = False
+
+        freeze_graph.freeze_graph(input_graph_path, input_saver,
+                                  input_binary, checkpoint, output_node_names,
+                                  restore_op_name, filename_tensor_name,
+                                  output_graph_path, clear_devices, "", "xentropy_mean")
+
+def create_random_data_file():
+    read_line = 0
+    out_file_name = 'temp_saved_data.csv'
+    data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+    index_list = list(range(len(data_files)))
+
+    with open(out_file_name, "wb") as fout:
+        read_offset = 0
+        for line in xrange(FLAGS.max_steps):
+            random.shuffle(index_list)
+            for file_index in index_list:
+                with open(data_files[file_index], 'r') as fin:
+                    # 指定されているoffset+これまでに読み込んだ分、読み捨てる
+                    for remove_line in xrange(FLAGS.offset + read_offset):
+                        fin.readline()
+
+                    read_buffer = fin.readline()
+                    if read_buffer != None:
+                        fout.write(bytes(read_buffer, 'UTF-8'))
+                        read_line += 1
+
+            read_offset += 1
+
+    return (read_line, out_file_name)
+
 
 def read_sensor_data_sets(train_data_file,
                    dtype=dtypes.uint8,
@@ -310,11 +338,26 @@ def read_sensor_data_sets(train_data_file,
                         for data_index in xrange(len(combine_data_line_array)):
                             sensor_data_set_array = combine_data_line_array[data_index][0].split('+')
 
-                            for sensor_data_set in sensor_data_set_array:
-                                data_array = sensor_data_set.split('_')
+                            for sensor_data_set_index in xrange(len(sensor_data_set_array)):
+                                data_array = None
 
-                                for data in data_array:
-                                    sensor_data_sets = np.append(sensor_data_sets, data)
+                                if sensor_data_set_index == DATA_INDEX_ACCEL and FLAGS.use_accel:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_GYRO and FLAGS.use_gyro:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_PHOTO_REFLECTOR and FLAGS.use_photo:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_ANGLE and FLAGS.use_angle:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_TEMPERATURE and FLAGS.use_temperature:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_QUATERNION and FLAGS.use_quaternion:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+
+                                if data_array != None:
+                                    for data in data_array:
+                                        if data != "null":
+                                            sensor_data_sets = np.append(sensor_data_sets, data)
 
                             if data_index == (len(combine_data_line_array) - 1):
                                 if training == True:
@@ -331,6 +374,9 @@ def read_sensor_data_sets(train_data_file,
                 else:
                     break
 
+        if len(combine_data_line_array) < combine_data_line_count:
+            no_data = True
+
     if not no_data:
         new_shape = (read_step_count, get_parameter_data_count())
         sensor_data_sets = np.reshape(sensor_data_sets, new_shape)
@@ -342,17 +388,37 @@ def read_sensor_data_sets(train_data_file,
         return None
 
 def get_parameter_data_count():
-    return ((3 + 3 + 8) * FLAGS.combine_data_line_count)
+    ret_unit = 0
+
+    if FLAGS.use_accel:
+        ret_unit += 3
+    if FLAGS.use_gyro:
+        ret_unit += 3
+    if FLAGS.use_photo:
+        ret_unit += 8
+    if FLAGS.use_angle:
+        ret_unit += 3
+    if FLAGS.use_temperature:
+        ret_unit += 1
+    if FLAGS.use_quaternion:
+        ret_unit += 4
+
+    return (ret_unit * FLAGS.combine_data_line_count)
 
 def main(_):
-    if tf.gfile.Exists(FLAGS.log_dir):
-        tf.gfile.DeleteRecursively(FLAGS.log_dir)
-    tf.gfile.MakeDirs(FLAGS.log_dir)
+    # if tf.gfile.Exists(FLAGS.log_dir):
+    #     tf.gfile.DeleteRecursively(FLAGS.log_dir)
+    # tf.gfile.MakeDirs(FLAGS.log_dir)
     run_training()
 
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
+  parser.add_argument(
+      '--debug_log',
+      default=False,
+      help='enable debug log'
+  )
   parser.add_argument(
       '--learning_rate',
       type=float,
@@ -368,13 +434,13 @@ if __name__ == '__main__':
   parser.add_argument(
       '--hidden1',
       type=int,
-      default=128,
+      default=8,
       help='Number of units in hidden layer 1.'
   )
   parser.add_argument(
       '--hidden2',
       type=int,
-      default=32,
+      default=4,
       help='Number of units in hidden layer 2.'
   )
   parser.add_argument(
@@ -394,6 +460,12 @@ if __name__ == '__main__':
       type=str,
       default='./checkpoint',
       help='Directory to put the log data.'
+  )
+  parser.add_argument(
+      '--max_save_checkpoint',
+      type=int,
+      default=1000,
+      help=''
   )
   parser.add_argument(
       '--fake_data',
@@ -429,6 +501,41 @@ if __name__ == '__main__':
       type=int,
       default=2,
       help='0: straight, 1: curve'
+  )
+  parser.add_argument(
+      '--random_learning',
+      default=False,
+      help=''
+  )
+  parser.add_argument(
+      '--use_accel',
+      default=False,
+      help='use accel for learning'
+  )
+  parser.add_argument(
+      '--use_gyro',
+      default=False,
+      help='use gyro for learning'
+  )
+  parser.add_argument(
+      '--use_photo',
+      default=True,
+      help='use photo reflector for learning'
+  )
+  parser.add_argument(
+      '--use_angle',
+      default=True,
+      help='use angle for learning'
+  )
+  parser.add_argument(
+      '--use_temperature',
+      default=False,
+      help='use temperature for learning'
+  )
+  parser.add_argument(
+      '--use_quaternion',
+      default=False,
+      help='use quaternion for learning'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
