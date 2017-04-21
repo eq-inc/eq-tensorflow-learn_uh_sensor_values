@@ -1,3 +1,4 @@
+# coding: utf-8
 # Copyright 2015 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -43,6 +44,12 @@ from tensorflow.python.tools import freeze_graph
 # Basic model parameters as external flags.
 FLAGS = None
 
+DATA_INDEX_ACCEL = 0
+DATA_INDEX_GYRO = 1
+DATA_INDEX_PHOTO_REFLECTOR = 2
+DATA_INDEX_ANGLE = 3
+DATA_INDEX_TEMPERATURE = 4
+DATA_INDEX_QUATERNION = 5
 
 def placeholder_inputs(batch_size):
   """Generate placeholder variables to represent the input tensors.
@@ -169,9 +176,10 @@ def run_training():
         sess.run(init)
 
         # Create a saver for writing training checkpoints.
-        saver = tf.train.Saver()
+        saver = tf.train.Saver(max_to_keep=FLAGS.max_save_checkpoint)
 
         # load checkpoint
+        checkpoint = ''
         checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
         try:
             saver.restore(sess, checkpoint_file)
@@ -224,13 +232,12 @@ def run_training():
                     summary_writer.flush()
 
                     # Save a checkpoint and evaluate the model periodically.
-                    checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
                     checkpoint = saver.save(sess, checkpoint_file, meta_graph_suffix='meta', write_meta_graph=True, global_step=total_read_step, write_state=True, latest_filename='checkpoint_state_name')
 
                     offset_step += read_step
                     total_read_step += read_step
 
-                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step)):
+                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step) or (offset_step + FLAGS.combine_data_line_count >= max_read_step)):
                         # Evaluate against the training set.
                         print('Training Data Eval:')
                         do_eval(sess,
@@ -331,11 +338,26 @@ def read_sensor_data_sets(train_data_file,
                         for data_index in xrange(len(combine_data_line_array)):
                             sensor_data_set_array = combine_data_line_array[data_index][0].split('+')
 
-                            for sensor_data_set in sensor_data_set_array:
-                                data_array = sensor_data_set.split('_')
+                            for sensor_data_set_index in xrange(len(sensor_data_set_array)):
+                                data_array = None
 
-                                for data in data_array:
-                                    sensor_data_sets = np.append(sensor_data_sets, data)
+                                if sensor_data_set_index == DATA_INDEX_ACCEL and FLAGS.use_accel:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_GYRO and FLAGS.use_gyro:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_PHOTO_REFLECTOR and FLAGS.use_photo:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_ANGLE and FLAGS.use_angle:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_TEMPERATURE and FLAGS.use_temperature:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                                elif sensor_data_set_index == DATA_INDEX_QUATERNION and FLAGS.use_quaternion:
+                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+
+                                if data_array != None:
+                                    for data in data_array:
+                                        if data != "null":
+                                            sensor_data_sets = np.append(sensor_data_sets, data)
 
                             if data_index == (len(combine_data_line_array) - 1):
                                 if training == True:
@@ -352,6 +374,9 @@ def read_sensor_data_sets(train_data_file,
                 else:
                     break
 
+        if len(combine_data_line_array) < combine_data_line_count:
+            no_data = True
+
     if not no_data:
         new_shape = (read_step_count, get_parameter_data_count())
         sensor_data_sets = np.reshape(sensor_data_sets, new_shape)
@@ -363,7 +388,22 @@ def read_sensor_data_sets(train_data_file,
         return None
 
 def get_parameter_data_count():
-    return ((3 + 3 + 8) * FLAGS.combine_data_line_count)
+    ret_unit = 0
+
+    if FLAGS.use_accel:
+        ret_unit += 3
+    if FLAGS.use_gyro:
+        ret_unit += 3
+    if FLAGS.use_photo:
+        ret_unit += 8
+    if FLAGS.use_angle:
+        ret_unit += 3
+    if FLAGS.use_temperature:
+        ret_unit += 1
+    if FLAGS.use_quaternion:
+        ret_unit += 4
+
+    return (ret_unit * FLAGS.combine_data_line_count)
 
 def main(_):
     # if tf.gfile.Exists(FLAGS.log_dir):
@@ -374,6 +414,11 @@ def main(_):
 
 if __name__ == '__main__':
   parser = argparse.ArgumentParser()
+  parser.add_argument(
+      '--debug_log',
+      default=False,
+      help='enable debug log'
+  )
   parser.add_argument(
       '--learning_rate',
       type=float,
@@ -389,13 +434,13 @@ if __name__ == '__main__':
   parser.add_argument(
       '--hidden1',
       type=int,
-      default=128,
+      default=8,
       help='Number of units in hidden layer 1.'
   )
   parser.add_argument(
       '--hidden2',
       type=int,
-      default=32,
+      default=4,
       help='Number of units in hidden layer 2.'
   )
   parser.add_argument(
@@ -415,6 +460,12 @@ if __name__ == '__main__':
       type=str,
       default='./checkpoint',
       help='Directory to put the log data.'
+  )
+  parser.add_argument(
+      '--max_save_checkpoint',
+      type=int,
+      default=1000,
+      help=''
   )
   parser.add_argument(
       '--fake_data',
@@ -455,6 +506,36 @@ if __name__ == '__main__':
       '--random_learning',
       default=False,
       help=''
+  )
+  parser.add_argument(
+      '--use_accel',
+      default=False,
+      help='use accel for learning'
+  )
+  parser.add_argument(
+      '--use_gyro',
+      default=False,
+      help='use gyro for learning'
+  )
+  parser.add_argument(
+      '--use_photo',
+      default=True,
+      help='use photo reflector for learning'
+  )
+  parser.add_argument(
+      '--use_angle',
+      default=True,
+      help='use angle for learning'
+  )
+  parser.add_argument(
+      '--use_temperature',
+      default=False,
+      help='use temperature for learning'
+  )
+  parser.add_argument(
+      '--use_quaternion',
+      default=False,
+      help='use quaternion for learning'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
