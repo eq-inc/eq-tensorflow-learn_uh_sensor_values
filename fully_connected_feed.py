@@ -357,9 +357,7 @@ def read_sensor_data_sets(train_data_file,
                                 if data_array != None:
                                     for data in data_array:
                                         if data != "null":
-                                            data_byte_array = data.encode()
-                                            for data_byte in data_byte_array:
-                                                sensor_data_sets = np.append(sensor_data_sets, float(data_byte))
+                                            sensor_data_sets = np.append(sensor_data_sets, data)
 
                             if data_index == (len(combine_data_line_array) - 1):
                                 if training == True:
