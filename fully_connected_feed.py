@@ -224,15 +224,17 @@ def run_training():
                     duration = time.time() - start_time
 
                     # Write the summaries and print an overview fairly often.
-                    # Print status to stdout.
-                    print('Step %d - %d: loss = %.2f (%.3f sec)' % (offset_step, offset_step + read_step, loss_value, duration))
-                    # Update the events file.
-                    summary_str = sess.run(summary, feed_dict=feed_dict)
-                    summary_writer.add_summary(summary_str, offset_step)
-                    summary_writer.flush()
+                    if total_read_step % 100 == 0:
+                        # Print status to stdout.
+                        print('Step %d - %d: loss = %.2f (%.3f sec)' % (total_read_step, total_read_step + read_step, loss_value, duration))
+                        # Update the events file.
+                        summary_str = sess.run(summary, feed_dict=feed_dict)
+                        summary_writer.add_summary(summary_str, total_read_step)
+                        summary_writer.flush()
 
-                    # Save a checkpoint and evaluate the model periodically.
-                    checkpoint = saver.save(sess, checkpoint_file, meta_graph_suffix='meta', write_meta_graph=True, global_step=total_read_step, write_state=True, latest_filename='checkpoint_state_name')
+                    if (total_read_step + read_step) % FLAGS.max_steps == 0:
+                        # Save a checkpoint and evaluate the model periodically.
+                        checkpoint = saver.save(sess, checkpoint_file, global_step=total_read_step)
 
                     offset_step += read_step
                     total_read_step += read_step
@@ -357,9 +359,15 @@ def read_sensor_data_sets(train_data_file,
                                 if data_array != None:
                                     for data in data_array:
                                         if data != "null":
-                                            data_byte_array = data.encode()
-                                            for data_byte in data_byte_array:
-                                                sensor_data_sets = np.append(sensor_data_sets, float(data_byte))
+                                            if FLAGS.expand_data_size > 0:
+                                                # dataをFLAGS.expand_data_size分まで0詰め
+                                                data = data.zfill(FLAGS.expand_data_size)
+                                                data_byte_array = data.encode()
+                                                for data_byte in data_byte_array:
+                                                    sensor_data_sets = np.append(sensor_data_sets, float(data_byte))
+                                            else:
+                                                # dataをそのまま使用
+                                                sensor_data_sets = np.append(sensor_data_sets, data)
 
                             if data_index == (len(combine_data_line_array) - 1):
                                 if training == True:
@@ -383,6 +391,7 @@ def read_sensor_data_sets(train_data_file,
         new_shape = (read_step_count, get_parameter_data_count())
         sensor_data_sets = np.reshape(sensor_data_sets, new_shape)
         sensor_data_sets.astype(np.float32)
+        print(sensor_data_sets[0])
         train = DataSet(sensor_data_sets, value_data_sets, dtype=dtype, reshape=reshape)
 
         return base.Datasets(train=train, validation=train, test=train)
@@ -405,7 +414,10 @@ def get_parameter_data_count():
     if FLAGS.use_quaternion:
         ret_unit += 4
 
-    return (ret_unit * FLAGS.combine_data_line_count)
+    if FLAGS.expand_data_size > 0:
+        return (ret_unit * FLAGS.expand_data_size * FLAGS.combine_data_line_count)
+    else:
+        return (ret_unit * FLAGS.combine_data_line_count)
 
 def main(_):
     # if tf.gfile.Exists(FLAGS.log_dir):
@@ -506,38 +518,51 @@ if __name__ == '__main__':
   )
   parser.add_argument(
       '--random_learning',
-      default=False,
+      default=True,
+      action='store_true',
       help=''
   )
   parser.add_argument(
       '--use_accel',
       default=False,
+      action='store_true',
       help='use accel for learning'
   )
   parser.add_argument(
       '--use_gyro',
       default=False,
+      action='store_true',
       help='use gyro for learning'
   )
   parser.add_argument(
       '--use_photo',
-      default=True,
+      default=False,
+      action='store_true',
       help='use photo reflector for learning'
   )
   parser.add_argument(
       '--use_angle',
-      default=True,
+      default=False,
+      action='store_true',
       help='use angle for learning'
   )
   parser.add_argument(
       '--use_temperature',
       default=False,
+      action='store_true',
       help='use temperature for learning'
   )
   parser.add_argument(
       '--use_quaternion',
       default=False,
+      action='store_true',
       help='use quaternion for learning'
+  )
+  parser.add_argument(
+      '--expand_data_size',
+      type=int,
+      default=0,
+      help='0: As is'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
