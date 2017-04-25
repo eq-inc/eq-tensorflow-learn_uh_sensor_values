@@ -280,7 +280,7 @@ def run_training():
         freeze_graph.freeze_graph(input_graph_path, input_saver,
                                   input_binary, checkpoint, output_node_names,
                                   restore_op_name, filename_tensor_name,
-                                  output_graph_path, clear_devices, "", "xentropy_mean")
+                                  output_graph_path, clear_devices, "", "")
 
 def create_random_data_file():
     read_line = 0
@@ -376,8 +376,6 @@ def read_sensor_data_sets(train_data_file,
 
                         step_count+=1
                         read_step_count+=1
-                        sys.stdout.write("read line: %d\r\b" % (step_count))
-                        sys.stdout.flush()
 
                         # remove first data, because it is not of range for combination
                         del combine_data_line_array[0]
