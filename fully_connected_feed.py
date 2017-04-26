@@ -347,8 +347,8 @@ def read_sensor_data_sets(train_data_file,
                         fin.readline()
 
                     read_buffer = fin.readline()
-                    if read_buffer != None:
-                        READ_SAVED_DATA_BUFFER.append(read_buffer.split('\n')[0].split(','))
+                    if (read_buffer != None) and (len(read_buffer) > 0):
+                        READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
                         read_line += 1
 
             read_offset += 1
@@ -449,7 +449,10 @@ def insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_arra
         if data_index == (len(combine_data_line_array) - 1):
             if training == True:
                 # use value
-                value_data_sets = np.append(value_data_sets, combine_data_line_array[data_index][1])
+                try:
+                    value_data_sets = np.append(value_data_sets, combine_data_line_array[data_index][1])
+                except IndexError:
+                    print("combine_data_line_array: %s" % combine_data_line_array)
 
     # remove first data, because it is not of range for combination
     del combine_data_line_array[0]
