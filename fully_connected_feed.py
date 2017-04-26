@@ -23,6 +23,7 @@ from __future__ import print_function
 import argparse
 import csv
 import glob
+import math
 import os.path
 import random
 import sys
@@ -50,6 +51,8 @@ DATA_INDEX_PHOTO_REFLECTOR = 2
 DATA_INDEX_ANGLE = 3
 DATA_INDEX_TEMPERATURE = 4
 DATA_INDEX_QUATERNION = 5
+DUMMY_FILE_NAME = "dummy_sensor_data.csv"
+READ_SAVED_DATA_BUFFER = []
 
 def placeholder_inputs(batch_size):
   """Generate placeholder variables to represent the input tensors.
@@ -232,7 +235,7 @@ def run_training():
                         summary_writer.add_summary(summary_str, total_read_step)
                         summary_writer.flush()
 
-                    if (total_read_step + read_step) % FLAGS.max_steps == 0:
+                    if (FLAGS.max_steps > 0) and ((total_read_step + read_step) % FLAGS.max_steps == 0):
                         # Save a checkpoint and evaluate the model periodically.
                         checkpoint = saver.save(sess, checkpoint_file, global_step=total_read_step)
 
@@ -266,6 +269,10 @@ def run_training():
                 else:
                     break;
 
+        if FLAGS.max_steps == 0:
+            # Save a checkpoint and evaluate the model periodically.
+            checkpoint = saver.save(sess, checkpoint_file, global_step=total_read_step)
+
         graph_io.write_graph(sess.graph, FLAGS.saved_data_dir, "saved_data.pb", as_text=False)
         input_binary = True
 
@@ -283,29 +290,32 @@ def run_training():
                                   output_graph_path, clear_devices, "", "")
 
 def create_random_data_file():
-    read_line = 0
-    out_file_name = 'temp_saved_data.csv'
+    # read_line = 0
+    # out_file_name = 'temp_saved_data.csv'
+    # data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+    # index_list = list(range(len(data_files)))
+    #
+    # with open(out_file_name, "wb") as fout:
+    #     read_offset = 0
+    #     for line in xrange(FLAGS.max_steps):
+    #         random.shuffle(index_list)
+    #         for file_index in index_list:
+    #             with open(data_files[file_index], 'r') as fin:
+    #                 # 指定されているoffset+これまでに読み込んだ分、読み捨てる
+    #                 for remove_line in xrange(FLAGS.offset + read_offset):
+    #                     fin.readline()
+    #
+    #                 read_buffer = fin.readline()
+    #                 if read_buffer != None:
+    #                     fout.write(bytes(read_buffer, 'UTF-8'))
+    #                     read_line += 1
+    #
+    #         read_offset += 1
+    #
+    # return (read_line, out_file_name)
+
     data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
-    index_list = list(range(len(data_files)))
-
-    with open(out_file_name, "wb") as fout:
-        read_offset = 0
-        for line in xrange(FLAGS.max_steps):
-            random.shuffle(index_list)
-            for file_index in index_list:
-                with open(data_files[file_index], 'r') as fin:
-                    # 指定されているoffset+これまでに読み込んだ分、読み捨てる
-                    for remove_line in xrange(FLAGS.offset + read_offset):
-                        fin.readline()
-
-                    read_buffer = fin.readline()
-                    if read_buffer != None:
-                        fout.write(bytes(read_buffer, 'UTF-8'))
-                        read_line += 1
-
-            read_offset += 1
-
-    return (read_line, out_file_name)
+    return (FLAGS.max_steps * len(data_files), DUMMY_FILE_NAME)
 
 
 def read_sensor_data_sets(train_data_file,
@@ -318,72 +328,80 @@ def read_sensor_data_sets(train_data_file,
     sensor_data_sets = np.array([], dtype=np.float32)
     value_data_sets = np.array([], dtype=np.float32)
     no_data = True
-    combine_data_line_count = FLAGS.combine_data_line_count
     combine_data_line_array = []
 
-    with open(train_data_file, 'r') as f:
-        csv_data_sets = csv.reader(f)
+    if train_data_file == DUMMY_FILE_NAME:
+        read_line = 0
+        data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+        index_list = list(range(len(data_files)))
+
+        read_offset = 0
+        need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
+        for read_count in xrange(need_read_count):
+            random.shuffle(index_list)
+            for file_index in index_list:
+                with open(data_files[file_index], 'r') as fin:
+                    # 指定されているoffset+これまでに読み込んだ分、読み捨てる
+                    remove_line_count = (FLAGS.offset + offset_step) / len(data_files)
+                    for remove_line in xrange(math.ceil(remove_line_count)):
+                        fin.readline()
+
+                    read_buffer = fin.readline()
+                    if read_buffer != None:
+                        READ_SAVED_DATA_BUFFER.append(read_buffer.split('\n')[0].split(','))
+                        read_line += 1
+
+            read_offset += 1
 
         step_count = 0
         read_step_count = 0
-
-        for row in csv_data_sets:
-            if step_count < offset_step:
-                step_count+=1
+        buffer_index = 0
+        for line_index in xrange(FLAGS.batch_size):
+            buffer_index = line_index
+            if len(READ_SAVED_DATA_BUFFER) <= line_index:
+                break
             else:
                 no_data = False
 
-                # save combination data in list
-                combine_data_line_array.append(row)
+                combine_data_line_array = []
+                for combine_line_index in xrange(FLAGS.combine_data_line_count):
+                    combine_data_line_array.append(READ_SAVED_DATA_BUFFER[line_index + combine_line_index])
+
                 if read_step_count < read_step:
-                    if len(combine_data_line_array) == combine_data_line_count:
-                        for data_index in xrange(len(combine_data_line_array)):
-                            sensor_data_set_array = combine_data_line_array[data_index][0].split('+')
-
-                            for sensor_data_set_index in xrange(len(sensor_data_set_array)):
-                                data_array = None
-
-                                if sensor_data_set_index == DATA_INDEX_ACCEL and FLAGS.use_accel:
-                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
-                                elif sensor_data_set_index == DATA_INDEX_GYRO and FLAGS.use_gyro:
-                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
-                                elif sensor_data_set_index == DATA_INDEX_PHOTO_REFLECTOR and FLAGS.use_photo:
-                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
-                                elif sensor_data_set_index == DATA_INDEX_ANGLE and FLAGS.use_angle:
-                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
-                                elif sensor_data_set_index == DATA_INDEX_TEMPERATURE and FLAGS.use_temperature:
-                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
-                                elif sensor_data_set_index == DATA_INDEX_QUATERNION and FLAGS.use_quaternion:
-                                    data_array = sensor_data_set_array[sensor_data_set_index].split('_')
-
-                                if data_array != None:
-                                    for data in data_array:
-                                        if data != "null":
-                                            if FLAGS.expand_data_size > 0:
-                                                # dataをFLAGS.expand_data_size分まで0詰め
-                                                data = data.zfill(FLAGS.expand_data_size)
-                                                data_byte_array = data.encode()
-                                                for data_byte in data_byte_array:
-                                                    sensor_data_sets = np.append(sensor_data_sets, float(data_byte))
-                                            else:
-                                                # dataをそのまま使用
-                                                sensor_data_sets = np.append(sensor_data_sets, data)
-
-                            if data_index == (len(combine_data_line_array) - 1):
-                                if training == True:
-                                    # use value
-                                    value_data_sets = np.append(value_data_sets, combine_data_line_array[data_index][1])
-
-                        step_count+=1
-                        read_step_count+=1
-
-                        # remove first data, because it is not of range for combination
-                        del combine_data_line_array[0]
+                    sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
+                    step_count+=1
+                    read_step_count+=1
                 else:
                     break
 
-        if len(combine_data_line_array) < combine_data_line_count:
-            no_data = True
+        # 使った分は削除する
+        del READ_SAVED_DATA_BUFFER[0: buffer_index]
+
+    else:
+        with open(train_data_file, 'r') as f:
+            csv_data_sets = csv.reader(f)
+
+            step_count = 0
+            read_step_count = 0
+
+            for row in csv_data_sets:
+                if step_count < offset_step:
+                    step_count+=1
+                else:
+                    no_data = False
+
+                    # save combination data in list
+                    combine_data_line_array.append(row)
+                    if read_step_count < read_step:
+                        if len(combine_data_line_array) == FLAGS.combine_data_line_count:
+                            sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
+                            step_count+=1
+                            read_step_count+=1
+                    else:
+                        break
+
+            if len(combine_data_line_array) < FLAGS.combine_data_line_count:
+                no_data = True
 
     if not no_data:
         new_shape = (read_step_count, get_parameter_data_count())
@@ -394,6 +412,49 @@ def read_sensor_data_sets(train_data_file,
         return base.Datasets(train=train, validation=train, test=train)
     else:
         return None
+
+def insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training):
+    for data_index in xrange(len(combine_data_line_array)):
+        sensor_data_set_array = combine_data_line_array[data_index][0].split('+')
+
+        for sensor_data_set_index in xrange(len(sensor_data_set_array)):
+            data_array = None
+
+            if sensor_data_set_index == DATA_INDEX_ACCEL and FLAGS.use_accel:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+            elif sensor_data_set_index == DATA_INDEX_GYRO and FLAGS.use_gyro:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+            elif sensor_data_set_index == DATA_INDEX_PHOTO_REFLECTOR and FLAGS.use_photo:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+            elif sensor_data_set_index == DATA_INDEX_ANGLE and FLAGS.use_angle:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+            elif sensor_data_set_index == DATA_INDEX_TEMPERATURE and FLAGS.use_temperature:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+            elif sensor_data_set_index == DATA_INDEX_QUATERNION and FLAGS.use_quaternion:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+
+            if data_array != None:
+                for data in data_array:
+                    if data != "null":
+                        if FLAGS.expand_data_size > 0:
+                            # dataをFLAGS.expand_data_size分まで0詰め
+                            data = data.zfill(FLAGS.expand_data_size)
+                            data_byte_array = data.encode()
+                            for data_byte in data_byte_array:
+                                sensor_data_sets = np.append(sensor_data_sets, float(data_byte))
+                        else:
+                            # dataをそのまま使用
+                            sensor_data_sets = np.append(sensor_data_sets, data)
+
+        if data_index == (len(combine_data_line_array) - 1):
+            if training == True:
+                # use value
+                value_data_sets = np.append(value_data_sets, combine_data_line_array[data_index][1])
+
+    # remove first data, because it is not of range for combination
+    del combine_data_line_array[0]
+
+    return (sensor_data_sets, value_data_sets)
 
 def get_parameter_data_count():
     ret_unit = 0
