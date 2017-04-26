@@ -337,21 +337,30 @@ def read_sensor_data_sets(train_data_file,
 
         read_offset = 0
         need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
-        for read_count in xrange(need_read_count):
-            random.shuffle(index_list)
-            for file_index in index_list:
-                with open(data_files[file_index], 'r') as fin:
-                    # 指定されているoffset+これまでに読み込んだ分、読み捨てる
-                    remove_line_count = (FLAGS.offset + offset_step) / len(data_files)
-                    for remove_line in xrange(math.ceil(remove_line_count)):
-                        fin.readline()
+        while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
+            empty_file_count = 0
 
-                    read_buffer = fin.readline()
-                    if (read_buffer != None) and (len(read_buffer) > 0):
-                        READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
-                        read_line += 1
+            for read_count in xrange(need_read_count):
+                random.shuffle(index_list)
+                for file_index in index_list:
+                    with open(data_files[file_index], 'r') as fin:
+                        # 指定されているoffset+これまでに読み込んだ分、読み捨てる
+                        remove_line_count = (FLAGS.offset + offset_step) / len(data_files)
+                        for remove_line in xrange(math.ceil(remove_line_count)):
+                            fin.readline()
 
-            read_offset += 1
+                        read_buffer = fin.readline()
+                        if (read_buffer != None) and (len(read_buffer) > 0):
+                            READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
+                            read_line += 1
+                        else:
+                            empty_file_count += 1
+
+                read_offset += 1
+
+            if empty_file_count == len(data_files):
+                # 全てのファイルから読み込めなくなったときはあきらめる
+                break
 
         step_count = 0
         read_step_count = 0
