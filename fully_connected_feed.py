@@ -189,6 +189,7 @@ def run_training():
         except errors.NotFoundError:
             pass
 
+        eof_dict = {}
         data_files = []
         if FLAGS.random_learning:
             max_read_step, out_file_name = create_random_data_file()
@@ -204,7 +205,7 @@ def run_training():
 
             while True:
                 # read data_sets from CVS
-                data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
+                data_sets = read_sensor_data_sets(eof_dict, data_file, offset_step=offset_step, read_step=read_step)
 
                 if data_sets != None:
                     # Start the training loop.
@@ -317,12 +318,14 @@ def create_random_data_file():
     return (FLAGS.max_steps * len(data_files), DUMMY_FILE_NAME)
 
 
-def read_sensor_data_sets(train_data_file,
-                   dtype=dtypes.uint8,
-                   reshape=False,
-                   training=True,
-                   offset_step=0,
-                   read_step=500):
+def read_sensor_data_sets(
+                eof_dict,
+                train_data_file,
+                dtype=dtypes.uint8,
+                reshape=False,
+                training=True,
+                offset_step=0,
+                read_step=500):
 
     sensor_data_sets = np.array([], dtype=np.float32)
     value_data_sets = np.array([], dtype=np.float32)
@@ -333,7 +336,6 @@ def read_sensor_data_sets(train_data_file,
         read_line = 0
         data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
         index_list = list(range(len(data_files)))
-        eof_dict = {}
 
         read_offset = 0
         need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
