@@ -338,6 +338,7 @@ def read_sensor_data_sets(train_data_file,
         read_offset = 0
         need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
         while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
+            all_file_empty = False
             empty_file_count = 0
 
             for read_count in xrange(need_read_count):
@@ -345,7 +346,7 @@ def read_sensor_data_sets(train_data_file,
                 for file_index in index_list:
                     with open(data_files[file_index], 'r') as fin:
                         # 指定されているoffset+これまでに読み込んだ分、読み捨てる
-                        remove_line_count = (FLAGS.offset + offset_step) / len(data_files)
+                        remove_line_count = (FLAGS.offset + offset_step + read_line) / len(data_files)
                         for remove_line in xrange(math.ceil(remove_line_count)):
                             fin.readline()
 
@@ -358,9 +359,13 @@ def read_sensor_data_sets(train_data_file,
 
                 read_offset += 1
 
-            if empty_file_count == len(data_files):
-                # 全てのファイルから読み込めなくなったときはあきらめる
-                break
+                if empty_file_count == len(data_files):
+                    # 全てのファイルから読み込めなくなったときはあきらめる
+                    all_file_empty = True
+                    break
+
+            if all_file_empty == True:
+                break 
 
         step_count = 0
         read_step_count = 0
