@@ -54,6 +54,40 @@ DATA_INDEX_QUATERNION = 5
 DUMMY_FILE_NAME = "dummy_sensor_data.csv"
 READ_SAVED_DATA_BUFFER = []
 
+class SensorDataFile:
+    def __init__(self, sensor_data_file):
+        self.sensor_data_file = sensor_data_file
+        self.sensor_data_file_desc = None
+        self.reach_eof = False
+        self.sub_sensor_data_file_array = []
+
+    def __del__(self):
+        self.fileClose()
+
+    def __str__(self):
+        return self.sensor_data_file + ": " + str(self.reach_eof)
+
+    def readLine(self):
+        if self.sensor_data_file_desc == None:
+            # open file
+            self.sensor_data_file_desc = open(self.sensor_data_file, 'r')
+
+        line = self.sensor_data_file_desc.readline()
+        if line == None or len(line) == 0:
+            # 本当は正しくないけど、簡易的に判断するようにする
+            self.reach_eof = True
+
+        return line
+
+    def isEndOfFile(self):
+        return self.reach_eof
+
+    def fileClose(self):
+        if self.sensor_data_file_desc != None:
+            self.sensor_data_file_desc.close()
+            self.sensor_data_file_desc = None
+            self.reach_eof = False
+
 def placeholder_inputs(batch_size):
   """Generate placeholder variables to represent the input tensors.
 
@@ -191,13 +225,18 @@ def run_training():
 
         eof_dict = {}
         data_files = []
+        data_file_paths = []
         if FLAGS.random_learning:
             max_read_step, out_file_name = create_random_data_file()
-            data_files = [out_file_name]
+            data_file_paths = [out_file_name]
         else:
-            data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+            data_file_paths = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
 
         total_read_step = len(data_files) * FLAGS.offset
+
+        # ファイルパスからSensorDataFileインスタンスへ変更
+        for data_file_path in data_file_paths:
+            data_files.append(SensorDataFile(data_file_path))
 
         for data_file in data_files:
             print('%s: ' % data_file)
@@ -205,7 +244,7 @@ def run_training():
 
             while True:
                 # read data_sets from CVS
-                data_sets = read_sensor_data_sets(eof_dict, data_file, offset_step=offset_step, read_step=read_step)
+                data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
 
                 if data_sets != None:
                     # Start the training loop.
@@ -319,7 +358,6 @@ def create_random_data_file():
 
 
 def read_sensor_data_sets(
-                eof_dict,
                 train_data_file,
                 dtype=dtypes.uint8,
                 reshape=False,
@@ -332,9 +370,15 @@ def read_sensor_data_sets(
     no_data = True
     combine_data_line_array = []
 
-    if train_data_file == DUMMY_FILE_NAME:
+    if train_data_file.sensor_data_file == DUMMY_FILE_NAME:
         read_line = 0
-        data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+
+        if len(train_data_file.sub_sensor_data_file_array) == 0:
+            data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+            for data_file in data_files:
+                train_data_file.sub_sensor_data_file_array.append(SensorDataFile(data_file))
+
+        data_files = train_data_file.sub_sensor_data_file_array
         index_list = list(range(len(data_files)))
 
         read_offset = 0
@@ -346,20 +390,13 @@ def read_sensor_data_sets(
                 empty_file_count = 0
                 random.shuffle(index_list)
                 for file_index in index_list:
-                    if (data_files[file_index] in eof_dict) == False:
-                        with open(data_files[file_index], 'r') as fin:
-                            # 指定されているoffset+これまでに読み込んだ分、読み捨てる
-                            remove_line_count = (FLAGS.offset + offset_step + read_line) / len(data_files)
-                            for remove_line in xrange(math.ceil(remove_line_count)):
-                                fin.readline()
-
-                            read_buffer = fin.readline()
-                            if (read_buffer != None) and (len(read_buffer) > 0):
-                                READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
-                                read_line += 1
-                            else:
-                                eof_dict[data_files[file_index]] = True
-                                empty_file_count += 1
+                    if (data_files[file_index].isEndOfFile()) == False:
+                        read_buffer = data_files[file_index].readLine()
+                        if (read_buffer != None) and (len(read_buffer) > 0):
+                            READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
+                            read_line += 1
+                        else:
+                            empty_file_count += 1
                     else:
                         empty_file_count += 1
 
@@ -399,7 +436,7 @@ def read_sensor_data_sets(
             del READ_SAVED_DATA_BUFFER[0: buffer_index]
 
     else:
-        with open(train_data_file, 'r') as f:
+        with open(train_data_file.sensor_data_file, 'r') as f:
             csv_data_sets = csv.reader(f)
 
             step_count = 0
