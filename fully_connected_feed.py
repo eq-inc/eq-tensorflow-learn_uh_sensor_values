@@ -365,31 +365,32 @@ def read_sensor_data_sets(train_data_file,
                     break
 
             if all_file_empty == True:
-                break 
+                break
 
         step_count = 0
         read_step_count = 0
         buffer_index = 0
-        for line_index in xrange(FLAGS.batch_size):
-            buffer_index = line_index
-            if len(READ_SAVED_DATA_BUFFER) <= line_index:
-                break
-            else:
-                no_data = False
-
-                combine_data_line_array = []
-                for combine_line_index in xrange(FLAGS.combine_data_line_count):
-                    combine_data_line_array.append(READ_SAVED_DATA_BUFFER[line_index + combine_line_index])
-
-                if read_step_count < read_step:
-                    sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
-                    step_count+=1
-                    read_step_count+=1
-                else:
+        if len(READ_SAVED_DATA_BUFFER) >= FLAGS.batch_size:
+            for line_index in xrange(FLAGS.batch_size):
+                buffer_index = line_index
+                if len(READ_SAVED_DATA_BUFFER) <= line_index:
                     break
+                else:
+                    no_data = False
 
-        # 使った分は削除する
-        del READ_SAVED_DATA_BUFFER[0: buffer_index]
+                    combine_data_line_array = []
+                    for combine_line_index in xrange(FLAGS.combine_data_line_count):
+                        combine_data_line_array.append(READ_SAVED_DATA_BUFFER[line_index + combine_line_index])
+
+                    if read_step_count < read_step:
+                        sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
+                        step_count+=1
+                        read_step_count+=1
+                    else:
+                        break
+
+            # 使った分は削除する
+            del READ_SAVED_DATA_BUFFER[0: buffer_index]
 
     else:
         with open(train_data_file, 'r') as f:
