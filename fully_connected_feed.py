@@ -269,9 +269,8 @@ def run_training():
                 else:
                     break;
 
-        if FLAGS.max_steps == 0:
-            # Save a checkpoint and evaluate the model periodically.
-            checkpoint = saver.save(sess, checkpoint_file, global_step=total_read_step)
+        # Save a checkpoint and evaluate the model periodically.
+        checkpoint = saver.save(sess, checkpoint_file, global_step=total_read_step)
 
         graph_io.write_graph(sess.graph, FLAGS.saved_data_dir, "saved_data.pb", as_text=False)
         input_binary = True
@@ -339,9 +338,9 @@ def read_sensor_data_sets(train_data_file,
         need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
         while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
             all_file_empty = False
-            empty_file_count = 0
 
             for read_count in xrange(need_read_count):
+                empty_file_count = 0
                 random.shuffle(index_list)
                 for file_index in index_list:
                     with open(data_files[file_index], 'r') as fin:
