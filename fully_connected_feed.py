@@ -402,7 +402,11 @@ def read_sensor_data_sets(
 
                 read_offset += 1
 
-                if empty_file_count == len(data_files):
+                if FLAGS.use_same_data_count and empty_file_count > 0:
+                    # 全てのファイルからデータを取得できなくなったので、学習は終了させる
+                    all_file_empty = True
+                    break
+                elif empty_file_count == len(data_files):
                     # 全てのファイルから読み込めなくなったときはあきらめる
                     all_file_empty = True
                     break
@@ -682,6 +686,12 @@ if __name__ == '__main__':
       type=int,
       default=0,
       help='0: As is'
+  )
+  parser.add_argument(
+      '--use_same_data_count',
+      default=False,
+      action='store_true',
+      help='use same data from each data files'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
