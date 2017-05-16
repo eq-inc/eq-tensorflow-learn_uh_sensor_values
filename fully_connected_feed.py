@@ -53,6 +53,8 @@ DATA_INDEX_TEMPERATURE = 4
 DATA_INDEX_QUATERNION = 5
 DUMMY_FILE_NAME = "dummy_sensor_data.csv"
 READ_SAVED_DATA_BUFFER = []
+MAX_FINGER_COUNT = 5
+ENABLE_FINGER_COUNT = MAX_FINGER_COUNT
 
 class SensorDataFile:
     def __init__(self, sensor_data_file):
@@ -170,6 +172,9 @@ def do_eval(sess,
 
 def run_training():
     """Train sensor data for a number of steps."""
+    # check enable finger count from FLAGS.enable_finger_flags
+    ENABLE_FINGER_COUNT = get_enable_finger_count()
+
     # Get the sets of images and labels for training, validation, and test on uh_sensor_values.
     read_step = FLAGS.batch_size
     max_read_step = FLAGS.max_steps
@@ -183,7 +188,7 @@ def run_training():
 
         # Build a Graph that computes predictions from the inference model.
         logits = uh_sensor_values.inference(
-                        FLAGS.max_finger_condition ** 5,
+                        FLAGS.max_finger_condition ** ENABLE_FINGER_COUNT,
                         sensor_values_placeholder,
                         get_parameter_data_count(),
                         FLAGS.hidden1,
@@ -328,34 +333,24 @@ def run_training():
                                   restore_op_name, filename_tensor_name,
                                   output_graph_path, clear_devices, "", "")
 
-def create_random_data_file():
-    # read_line = 0
-    # out_file_name = 'temp_saved_data.csv'
-    # data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
-    # index_list = list(range(len(data_files)))
-    #
-    # with open(out_file_name, "wb") as fout:
-    #     read_offset = 0
-    #     for line in xrange(FLAGS.max_steps):
-    #         random.shuffle(index_list)
-    #         for file_index in index_list:
-    #             with open(data_files[file_index], 'r') as fin:
-    #                 # 指定されているoffset+これまでに読み込んだ分、読み捨てる
-    #                 for remove_line in xrange(FLAGS.offset + read_offset):
-    #                     fin.readline()
-    #
-    #                 read_buffer = fin.readline()
-    #                 if read_buffer != None:
-    #                     fout.write(bytes(read_buffer, 'UTF-8'))
-    #                     read_line += 1
-    #
-    #         read_offset += 1
-    #
-    # return (read_line, out_file_name)
+def get_enable_finger_count():
+    enable_finger_count = 0
+    max_finger_count = MAX_FINGER_COUNT
+    enable_finger_flags = FLAGS.enable_finger_flags
 
+    for exponent in xrange(max_finger_count):
+        if enable_finger_flags % 10 != 0:
+            enable_finger_count += 1
+
+        # 桁を下げる
+        enable_finger_flags = enable_finger_flags // 10
+
+    return enable_finger_count
+
+def create_random_data_file():
+    # ランダムデータを集めたファイルは作成に時間が掛かるので、それは作成せずに、ダミーファイルパスを返却し、コール元でパスにより判断できるようにする
     data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
     return (FLAGS.max_steps * len(data_files), DUMMY_FILE_NAME)
-
 
 def read_sensor_data_sets(
                 train_data_file,
@@ -376,7 +371,25 @@ def read_sensor_data_sets(
         if len(train_data_file.sub_sensor_data_file_array) == 0:
             data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
             for data_file in data_files:
-                train_data_file.sub_sensor_data_file_array.append(SensorDataFile(data_file))
+                data_file_flags = data_file[len(FLAGS.input_data_dir + "/sensor_data_"):]
+                enable_finger_flags = FLAGS.enable_finger_flags
+                enable_data_file = True
+
+                try:
+                    data_file_flags_int = int(data_file_flags)
+                    for finger_flag_count in xrange(MAX_FINGER_COUNT):
+                        if enable_finger_flags % 10 == 0:
+                            if data_file_flags_int % 10 != 0:
+                                enable_data_file = False
+                                break
+                        data_file_flags_int = data_file_flags_int // 10
+                        enable_finger_flags = enable_finger_flags // 10
+                except:
+                    enable_data_file = False
+                    pass
+
+                if enable_data_file:
+                    train_data_file.sub_sensor_data_file_array.append(SensorDataFile(data_file))
 
         data_files = train_data_file.sub_sensor_data_file_array
         index_list = list(range(len(data_files)))
@@ -692,6 +705,12 @@ if __name__ == '__main__':
       default=False,
       action='store_true',
       help='use same data from each data files'
+  )
+  parser.add_argument(
+      '--enable_finger_flags',
+      type=int,
+      default=11111,
+      help='0: disable, none 0: enable'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
