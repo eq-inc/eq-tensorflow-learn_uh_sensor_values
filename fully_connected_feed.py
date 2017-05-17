@@ -326,13 +326,16 @@ def run_training():
                 # read data_sets from CVS
                 data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
 
-                do_eval(sess,
-                      eval_correct,
-                      sensor_values_placeholder,
-                      labels_placeholder,
-                      data_sets.train)
+                if data_sets != None:
+                    do_eval(sess,
+                          eval_correct,
+                          sensor_values_placeholder,
+                          labels_placeholder,
+                          data_sets.train)
 
-                offset_step = offset_step + read_step
+                    offset_step = offset_step + read_step
+                else:
+                    break
 
             break
 
