@@ -90,6 +90,10 @@ class SensorDataFile:
             self.sensor_data_file_desc = None
             self.reach_eof = False
 
+        if len(self.sub_sensor_data_file_array) > 0:
+            for sub_sensor_data_file in self.sub_sensor_data_file_array:
+                sub_sensor_data_file.fileClose()
+
 def placeholder_inputs(batch_size):
   """Generate placeholder variables to represent the input tensors.
 
@@ -286,31 +290,6 @@ def run_training():
 
                     offset_step += read_step
                     total_read_step += read_step
-
-                    if (max_read_step != 0) and (offset_step >= (start_offset_step + max_read_step) or (offset_step + FLAGS.combine_data_line_count >= max_read_step)):
-                        # Evaluate against the training set.
-                        print('Training Data Eval:')
-                        do_eval(sess,
-                              eval_correct,
-                              sensor_values_placeholder,
-                              labels_placeholder,
-                              data_sets.train)
-                        # Evaluate against the validation set.
-                        print('Validation Data Eval:')
-                        do_eval(sess,
-                              eval_correct,
-                              sensor_values_placeholder,
-                              labels_placeholder,
-                              data_sets.validation)
-                        # Evaluate against the test set.
-                        print('Test Data Eval:')
-                        do_eval(sess,
-                              eval_correct,
-                              sensor_values_placeholder,
-                              labels_placeholder,
-                              data_sets.test)
-
-                        break
                 else:
                     break;
 
@@ -332,6 +311,30 @@ def run_training():
                                   input_binary, checkpoint, output_node_names,
                                   restore_op_name, filename_tensor_name,
                                   output_graph_path, clear_devices, "", "")
+
+        # Evaluate against the training set.
+        print('Validation Data Eval:')
+        for data_file in data_files:
+            # 一度ファイルをクローズする
+            data_file.fileClose()
+            start_offset_step = offset_step = FLAGS.offset
+
+            while True:
+                if offset_step > FLAGS.validation_count:
+                    break
+
+                # read data_sets from CVS
+                data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
+
+                do_eval(sess,
+                      eval_correct,
+                      sensor_values_placeholder,
+                      labels_placeholder,
+                      data_sets.train)
+
+                offset_step = offset_step + read_step
+
+            break
 
 def get_enable_finger_count():
     enable_finger_count = 0
@@ -366,91 +369,92 @@ def read_sensor_data_sets(
     combine_data_line_array = []
 
     if train_data_file.sensor_data_file == DUMMY_FILE_NAME:
-        read_line = 0
+        if (FLAGS.max_steps == 0) or (offset_step < FLAGS.max_steps):
+            read_line = 0
 
-        if len(train_data_file.sub_sensor_data_file_array) == 0:
-            data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
-            for data_file in data_files:
-                data_file_flags = data_file[len(FLAGS.input_data_dir + "/sensor_data_"):]
-                enable_finger_flags = FLAGS.enable_finger_flags
-                enable_data_file = True
+            if len(train_data_file.sub_sensor_data_file_array) == 0:
+                data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
+                for data_file in data_files:
+                    data_file_flags = data_file[len(FLAGS.input_data_dir + "/sensor_data_"):]
+                    enable_finger_flags = FLAGS.enable_finger_flags
+                    enable_data_file = True
 
-                try:
-                    data_file_flags_int = int(data_file_flags)
-                    for finger_flag_count in xrange(MAX_FINGER_COUNT):
-                        if enable_finger_flags % 10 == 0:
-                            if data_file_flags_int % 10 != 0:
-                                enable_data_file = False
-                                break
-                        data_file_flags_int = data_file_flags_int // 10
-                        enable_finger_flags = enable_finger_flags // 10
-                except:
-                    enable_data_file = False
-                    pass
+                    try:
+                        data_file_flags_int = int(data_file_flags)
+                        for finger_flag_count in xrange(MAX_FINGER_COUNT):
+                            if enable_finger_flags % 10 == 0:
+                                if data_file_flags_int % 10 != 0:
+                                    enable_data_file = False
+                                    break
+                            data_file_flags_int = data_file_flags_int // 10
+                            enable_finger_flags = enable_finger_flags // 10
+                    except:
+                        enable_data_file = False
+                        pass
 
-                if enable_data_file:
-                    train_data_file.sub_sensor_data_file_array.append(SensorDataFile(data_file))
+                    if enable_data_file:
+                        train_data_file.sub_sensor_data_file_array.append(SensorDataFile(data_file))
 
-        data_files = train_data_file.sub_sensor_data_file_array
-        index_list = list(range(len(data_files)))
+            data_files = train_data_file.sub_sensor_data_file_array
+            index_list = list(range(len(data_files)))
 
-        read_offset = 0
-        need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
-        while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
-            all_file_empty = False
+            read_offset = 0
+            need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
+            while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
+                all_file_empty = False
 
-            for read_count in xrange(need_read_count):
-                empty_file_count = 0
-                random.shuffle(index_list)
-                for file_index in index_list:
-                    if (data_files[file_index].isEndOfFile()) == False:
-                        read_buffer = data_files[file_index].readLine()
-                        if (read_buffer != None) and (len(read_buffer) > 0):
-                            READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
-                            read_line += 1
+                for read_count in xrange(need_read_count):
+                    empty_file_count = 0
+                    random.shuffle(index_list)
+                    for file_index in index_list:
+                        if (data_files[file_index].isEndOfFile()) == False:
+                            read_buffer = data_files[file_index].readLine()
+                            if (read_buffer != None) and (len(read_buffer) > 0):
+                                READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
+                                read_line += 1
+                            else:
+                                empty_file_count += 1
                         else:
                             empty_file_count += 1
-                    else:
-                        empty_file_count += 1
 
-                read_offset += 1
+                    read_offset += 1
 
-                if FLAGS.use_same_data_count and empty_file_count > 0:
-                    # 全てのファイルからデータを取得できなくなったので、学習は終了させる
-                    all_file_empty = True
-                    break
-                elif empty_file_count == len(data_files):
-                    # 全てのファイルから読み込めなくなったときはあきらめる
-                    all_file_empty = True
-                    break
-
-            if all_file_empty == True:
-                break
-
-        step_count = 0
-        read_step_count = 0
-        buffer_index = 0
-        if len(READ_SAVED_DATA_BUFFER) >= FLAGS.batch_size:
-            for line_index in xrange(FLAGS.batch_size):
-                buffer_index = line_index
-                if len(READ_SAVED_DATA_BUFFER) <= line_index:
-                    break
-                else:
-                    no_data = False
-
-                    combine_data_line_array = []
-                    for combine_line_index in xrange(FLAGS.combine_data_line_count):
-                        combine_data_line_array.append(READ_SAVED_DATA_BUFFER[line_index + combine_line_index])
-
-                    if read_step_count < read_step:
-                        sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
-                        step_count+=1
-                        read_step_count+=1
-                    else:
+                    if FLAGS.use_same_data_count and empty_file_count > 0:
+                        # 全てのファイルからデータを取得できなくなったので、学習は終了させる
+                        all_file_empty = True
+                        break
+                    elif empty_file_count == len(data_files):
+                        # 全てのファイルから読み込めなくなったときはあきらめる
+                        all_file_empty = True
                         break
 
-            # 使った分は削除する
-            del READ_SAVED_DATA_BUFFER[0: buffer_index]
+                if all_file_empty == True:
+                    break
+
+            step_count = 0
+            read_step_count = 0
+            buffer_index = 0
+            if len(READ_SAVED_DATA_BUFFER) >= FLAGS.batch_size:
+                for line_index in xrange(FLAGS.batch_size):
+                    buffer_index = line_index
+                    if len(READ_SAVED_DATA_BUFFER) <= line_index:
+                        break
+                    else:
+                        no_data = False
+
+                        combine_data_line_array = []
+                        for combine_line_index in xrange(FLAGS.combine_data_line_count):
+                            combine_data_line_array.append(READ_SAVED_DATA_BUFFER[line_index + combine_line_index])
+
+                        if read_step_count < read_step:
+                            sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
+                            step_count+=1
+                            read_step_count+=1
+                        else:
+                            break
+
+                # 使った分は削除する
+                del READ_SAVED_DATA_BUFFER[0: buffer_index]
 
     else:
         with open(train_data_file.sensor_data_file, 'r') as f:
@@ -582,6 +586,12 @@ if __name__ == '__main__':
       help='0: unlimited'
   )
   parser.add_argument(
+      '--validation_count',
+      type=int,
+      default=1000,
+      help=''
+  )
+  parser.add_argument(
       '--hidden1',
       type=int,
       default=8,
@@ -710,7 +720,7 @@ if __name__ == '__main__':
       '--enable_finger_flags',
       type=int,
       default=11111,
-      help='0: disable, none 0: enable'
+      help='0: disable, none 0: enable, PRMIT order'
   )
 
   FLAGS, unparsed = parser.parse_known_args()
