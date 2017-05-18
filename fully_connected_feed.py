@@ -191,12 +191,12 @@ def run_training():
         sensor_values_placeholder, labels_placeholder = placeholder_inputs(FLAGS.batch_size)
 
         # Build a Graph that computes predictions from the inference model.
-        logits = uh_sensor_values.inference(
-                        FLAGS.max_finger_condition ** ENABLE_FINGER_COUNT,
-                        sensor_values_placeholder,
-                        get_parameter_data_count(),
-                        FLAGS.hidden1,
-                        FLAGS.hidden2)
+        layer_units_array = [get_parameter_data_count()]
+        hidden_layer_units_array = FLAGS.hidden_layrer_units.split(',')
+        for hidden_layer_units in hidden_layer_units_array:
+            layer_units_array.append(int(hidden_layer_units))
+        layer_units_array.append(FLAGS.max_finger_condition ** ENABLE_FINGER_COUNT)
+        logits = uh_sensor_values.inference(sensor_values_placeholder, layer_units_array)
 
         # Add to the Graph the Ops for loss calculation.
         loss = uh_sensor_values.loss(logits, labels_placeholder)
@@ -241,7 +241,7 @@ def run_training():
         else:
             data_file_paths = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
 
-        total_read_step = len(data_files) * FLAGS.offset
+        total_read_step = 0
 
         # ファイルパスからSensorDataFileインスタンスへ変更
         for data_file_path in data_file_paths:
@@ -249,7 +249,7 @@ def run_training():
 
         for data_file in data_files:
             print('%s: ' % data_file)
-            start_offset_step = offset_step = FLAGS.offset
+            offset_step = 0
 
             while True:
                 # read data_sets from CVS
@@ -317,7 +317,7 @@ def run_training():
         for data_file in data_files:
             # 一度ファイルをクローズする
             data_file.fileClose()
-            start_offset_step = offset_step = FLAGS.offset
+            offset_step = 0
 
             while True:
                 if offset_step > FLAGS.validation_count:
@@ -595,16 +595,10 @@ if __name__ == '__main__':
       help=''
   )
   parser.add_argument(
-      '--hidden1',
-      type=int,
-      default=8,
-      help='Number of units in hidden layer 1.'
-  )
-  parser.add_argument(
-      '--hidden2',
-      type=int,
-      default=4,
-      help='Number of units in hidden layer 2.'
+      '--hidden_layrer_units',
+      type=str,
+      default='8,4',
+      help='Number of units in hidden layers.'
   )
   parser.add_argument(
       '--batch_size',
@@ -641,17 +635,6 @@ if __name__ == '__main__':
       type=str,
       default='./saved_train_data',
       help='Directory to restore the saved data.'
-  )
-  parser.add_argument(
-      '--load_saved_data',
-      default=False,
-      help='load saved data and evaluate with it'
-  )
-  parser.add_argument(
-      '--offset',
-      type=int,
-      default=0,
-      help=''
   )
   parser.add_argument(
       '--combine_data_line_count',
