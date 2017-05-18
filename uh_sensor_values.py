@@ -17,6 +17,7 @@ from __future__ import print_function
 
 from six.moves import xrange  # pylint: disable=redefined-builtin
 import math
+import sys
 import tensorflow as tf
 
 def inference(sensor_values, layer_units_array):
@@ -71,7 +72,7 @@ def loss(logits, labels):
     return tf.reduce_mean(cross_entropy, name='xentropy_mean')
 
 
-def training(loss, learning_rate):
+def training(optimizer_full_class, loss, learning_rate):
     """Sets up the training Ops.
 
     Creates a summarizer to track the loss over time in TensorBoard.
@@ -90,8 +91,8 @@ def training(loss, learning_rate):
     """
     # Add a scalar summary for the snapshot loss.
     tf.summary.scalar('loss', loss)
-    # Create the gradient descent optimizer with the given learning rate.
-    optimizer = tf.train.GradientDescentOptimizer(learning_rate)
+    # Create the optimizer with the given learning rate.
+    optimizer = eval(optimizer_full_class + '(learning_rate)')
     # Create a variable to track the global step.
     global_step = tf.Variable(0, name='global_step', trainable=False)
     # Use the optimizer to apply the gradients that minimize the loss

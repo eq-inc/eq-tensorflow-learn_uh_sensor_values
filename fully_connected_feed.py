@@ -202,7 +202,7 @@ def run_training():
         loss = uh_sensor_values.loss(logits, labels_placeholder)
 
         # Add to the Graph the Ops that calculate and apply gradients.
-        train_op = uh_sensor_values.training(loss, FLAGS.learning_rate)
+        train_op = uh_sensor_values.training(FLAGS.optimizer, loss, FLAGS.learning_rate)
 
         # Add the Op to compare the logits to the labels during evaluation.
         eval_correct = uh_sensor_values.evaluation(logits, labels_placeholder)
@@ -223,14 +223,8 @@ def run_training():
 
         # Create a saver for writing training checkpoints.
         saver = tf.train.Saver(max_to_keep=FLAGS.max_save_checkpoint)
-
-        # load checkpoint
         checkpoint = ''
         checkpoint_file = os.path.join(FLAGS.log_dir, 'model.ckpt')
-        try:
-            saver.restore(sess, checkpoint_file)
-        except errors.NotFoundError:
-            pass
 
         eof_dict = {}
         data_files = []
@@ -707,6 +701,12 @@ if __name__ == '__main__':
       type=int,
       default=11111,
       help='0: disable, none 0: enable, PRMIT order'
+  )
+  parser.add_argument(
+      '--optimizer',
+      type=str,
+      default='tf.train.AdamOptimizer',
+      help=''
   )
 
   FLAGS, unparsed = parser.parse_known_args()
