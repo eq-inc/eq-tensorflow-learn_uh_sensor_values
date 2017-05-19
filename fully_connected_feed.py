@@ -55,6 +55,8 @@ DUMMY_FILE_NAME = "dummy_sensor_data.csv"
 READ_SAVED_DATA_BUFFER = []
 MAX_FINGER_COUNT = 5
 ENABLE_FINGER_COUNT = MAX_FINGER_COUNT
+VALIDATE_SENSOR_DATA_SETS = np.array([], dtype=np.float32)
+VALIDATE_VALUE_DATA_SETS = np.array([], dtype=np.float32)
 
 class SensorDataFile:
     def __init__(self, sensor_data_file):
@@ -169,9 +171,15 @@ def do_eval(sess,
                                sensor_values_placeholder,
                                labels_placeholder)
     true_count += sess.run(eval_correct, feed_dict=feed_dict)
-  precision = float(true_count) / num_examples
-  print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
-        (num_examples, true_count, precision))
+
+  if num_examples == 0:
+      precision = float(true_count) / data_set.num_examples
+      print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
+            (data_set.num_examples, true_count, precision))
+  else:
+      precision = float(true_count) / num_examples
+      print('  Num examples: %d  Num correct: %d  Precision @ 1: %0.04f' %
+            (num_examples, true_count, precision))
 
 
 def run_training():
@@ -308,30 +316,45 @@ def run_training():
 
         # Evaluate against the training set.
         print('Validation Data Eval:')
-        for data_file in data_files:
-            # 一度ファイルをクローズする
-            data_file.fileClose()
-            offset_step = 0
+        # for data_file in data_files:
+        #     # 一度ファイルをクローズする
+        #     data_file.fileClose()
+        #     offset_step = 0
+        #
+        #     while True:
+        #         if offset_step > FLAGS.validation_count:
+        #             break
+        #
+        #         # read data_sets from CVS
+        #         data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
+        #
+        #         if data_sets != None:
+        #             do_eval(sess,
+        #                   eval_correct,
+        #                   sensor_values_placeholder,
+        #                   labels_placeholder,
+        #                   data_sets.train)
+        #
+        #             offset_step = offset_step + read_step
+        #         else:
+        #             break
+        #
+        #     break
+        global VALIDATE_SENSOR_DATA_SETS
+        global VALIDATE_VALUE_DATA_SETS
+        new_shape = (int(len(VALIDATE_SENSOR_DATA_SETS) / get_parameter_data_count()), get_parameter_data_count())
+        VALIDATE_SENSOR_DATA_SETS = np.reshape(VALIDATE_SENSOR_DATA_SETS, new_shape)
+        VALIDATE_SENSOR_DATA_SETS.astype(np.float32)
 
-            while True:
-                if offset_step > FLAGS.validation_count:
-                    break
+        train = DataSet(VALIDATE_SENSOR_DATA_SETS, VALIDATE_VALUE_DATA_SETS, dtype=dtypes.uint8, reshape=False)
+        data_sets = base.Datasets(train=train, validation=train, test=train)
+        if data_sets != None:
+            do_eval(sess,
+                  eval_correct,
+                  sensor_values_placeholder,
+                  labels_placeholder,
+                  data_sets.train)
 
-                # read data_sets from CVS
-                data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
-
-                if data_sets != None:
-                    do_eval(sess,
-                          eval_correct,
-                          sensor_values_placeholder,
-                          labels_placeholder,
-                          data_sets.train)
-
-                    offset_step = offset_step + read_step
-                else:
-                    break
-
-            break
 
 def get_enable_finger_count():
     enable_finger_count = 0
@@ -359,6 +382,9 @@ def read_sensor_data_sets(
                 training=True,
                 offset_step=0,
                 read_step=500):
+
+    global VALIDATE_SENSOR_DATA_SETS
+    global VALIDATE_VALUE_DATA_SETS
 
     sensor_data_sets = np.array([], dtype=np.float32)
     value_data_sets = np.array([], dtype=np.float32)
@@ -483,6 +509,11 @@ def read_sensor_data_sets(
         new_shape = (read_step_count, get_parameter_data_count())
         sensor_data_sets = np.reshape(sensor_data_sets, new_shape)
         sensor_data_sets.astype(np.float32)
+        if len(np.atleast_1d(VALIDATE_SENSOR_DATA_SETS)) < (FLAGS.validation_count * get_parameter_data_count()):
+            use_data_index = random.randint(0, len(sensor_data_sets) - 1)
+            VALIDATE_SENSOR_DATA_SETS = np.append(VALIDATE_SENSOR_DATA_SETS, sensor_data_sets[use_data_index])
+            VALIDATE_VALUE_DATA_SETS = np.append(VALIDATE_VALUE_DATA_SETS, value_data_sets[use_data_index])
+
         train = DataSet(sensor_data_sets, value_data_sets, dtype=dtype, reshape=reshape)
 
         return base.Datasets(train=train, validation=train, test=train)
