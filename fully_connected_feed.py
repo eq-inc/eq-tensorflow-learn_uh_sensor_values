@@ -51,6 +51,7 @@ DATA_INDEX_PHOTO_REFLECTOR = 2
 DATA_INDEX_ANGLE = 3
 DATA_INDEX_TEMPERATURE = 4
 DATA_INDEX_QUATERNION = 5
+DATA_INDEX_AMBIENT_LIGHT = 6
 DUMMY_FILE_NAME = "dummy_sensor_data.csv"
 READ_SAVED_DATA_BUFFER = []
 MAX_FINGER_COUNT = 5
@@ -316,30 +317,6 @@ def run_training():
 
         # Evaluate against the training set.
         print('Validation Data Eval:')
-        # for data_file in data_files:
-        #     # 一度ファイルをクローズする
-        #     data_file.fileClose()
-        #     offset_step = 0
-        #
-        #     while True:
-        #         if offset_step > FLAGS.validation_count:
-        #             break
-        #
-        #         # read data_sets from CVS
-        #         data_sets = read_sensor_data_sets(data_file, offset_step=offset_step, read_step=read_step)
-        #
-        #         if data_sets != None:
-        #             do_eval(sess,
-        #                   eval_correct,
-        #                   sensor_values_placeholder,
-        #                   labels_placeholder,
-        #                   data_sets.train)
-        #
-        #             offset_step = offset_step + read_step
-        #         else:
-        #             break
-        #
-        #     break
         global VALIDATE_SENSOR_DATA_SETS
         global VALIDATE_VALUE_DATA_SETS
         new_shape = (int(len(VALIDATE_SENSOR_DATA_SETS) / get_parameter_data_count()), get_parameter_data_count())
@@ -385,6 +362,7 @@ def read_sensor_data_sets(
 
     global VALIDATE_SENSOR_DATA_SETS
     global VALIDATE_VALUE_DATA_SETS
+    global READ_SAVED_DATA_BUFFER
 
     sensor_data_sets = np.array([], dtype=np.float32)
     value_data_sets = np.array([], dtype=np.float32)
@@ -393,8 +371,6 @@ def read_sensor_data_sets(
 
     if train_data_file.sensor_data_file == DUMMY_FILE_NAME:
         if (FLAGS.max_steps == 0) or (offset_step < FLAGS.max_steps):
-            read_line = 0
-
             if len(train_data_file.sub_sensor_data_file_array) == 0:
                 data_files = glob.glob(FLAGS.input_data_dir + "/sensor_data_*")
                 for data_file in data_files:
@@ -421,7 +397,6 @@ def read_sensor_data_sets(
             data_files = train_data_file.sub_sensor_data_file_array
             index_list = list(range(len(data_files)))
 
-            read_offset = 0
             need_read_count = math.ceil((FLAGS.batch_size - len(READ_SAVED_DATA_BUFFER)) / len(data_files))
             while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
                 all_file_empty = False
@@ -434,13 +409,10 @@ def read_sensor_data_sets(
                             read_buffer = data_files[file_index].readLine()
                             if (read_buffer != None) and (len(read_buffer) > 0):
                                 READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
-                                read_line += 1
                             else:
                                 empty_file_count += 1
                         else:
                             empty_file_count += 1
-
-                    read_offset += 1
 
                     if FLAGS.use_same_data_count and empty_file_count > 0:
                         # 全てのファイルからデータを取得できなくなったので、学習は終了させる
@@ -456,54 +428,78 @@ def read_sensor_data_sets(
 
             step_count = 0
             read_step_count = 0
-            buffer_index = 0
+            used_buffer_index = 0
             if len(READ_SAVED_DATA_BUFFER) >= FLAGS.batch_size:
                 for line_index in xrange(FLAGS.batch_size):
-                    buffer_index = line_index
+                    used_buffer_index = line_index
                     if len(READ_SAVED_DATA_BUFFER) <= line_index:
                         break
                     else:
                         no_data = False
 
-                        combine_data_line_array = []
-                        for combine_line_index in xrange(FLAGS.combine_data_line_count):
-                            combine_data_line_array.append(READ_SAVED_DATA_BUFFER[line_index + combine_line_index])
-
                         if read_step_count < read_step:
-                            sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
+                            temp_data_array = []
+                            temp_data_array.append(READ_SAVED_DATA_BUFFER[line_index])
+                            sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, temp_data_array, training)
                             step_count+=1
                             read_step_count+=1
                         else:
                             break
 
                 # 使った分は削除する
-                del READ_SAVED_DATA_BUFFER[0: buffer_index]
+                READ_SAVED_DATA_BUFFER = []
 
     else:
-        with open(train_data_file.sensor_data_file, 'r') as f:
-            csv_data_sets = csv.reader(f)
+        data_file_flags = train_data_file.sensor_data_file[len(FLAGS.input_data_dir + "/sensor_data_"):]
+        enable_finger_flags = FLAGS.enable_finger_flags
+        enable_data_file = True
+
+        try:
+            data_file_flags_int = int(data_file_flags)
+            for finger_flag_count in xrange(MAX_FINGER_COUNT):
+                if enable_finger_flags % 10 == 0:
+                    if data_file_flags_int % 10 != 0:
+                        enable_data_file = False
+                        break
+                data_file_flags_int = data_file_flags_int // 10
+                enable_finger_flags = enable_finger_flags // 10
+        except:
+            enable_data_file = False
+            pass
+
+        if enable_data_file:
+            while len(READ_SAVED_DATA_BUFFER) < FLAGS.batch_size:
+                if (train_data_file.isEndOfFile()) == False:
+                    read_buffer = train_data_file.readLine()
+                    if (read_buffer != None) and (len(read_buffer) > 0):
+                        READ_SAVED_DATA_BUFFER.append(read_buffer.rstrip("\n").split(','))
+                    else:
+                        break
+                else:
+                    break
 
             step_count = 0
             read_step_count = 0
+            used_buffer_index = 0
+            if len(READ_SAVED_DATA_BUFFER) >= FLAGS.batch_size:
+                for line_index in xrange(FLAGS.batch_size):
+                    used_buffer_index = line_index
+                    if len(READ_SAVED_DATA_BUFFER) <= line_index:
+                        break
+                    else:
+                        no_data = False
 
-            for row in csv_data_sets:
-                if step_count < offset_step:
-                    step_count+=1
-                else:
-                    no_data = False
-
-                    # save combination data in list
-                    combine_data_line_array.append(row)
-                    if read_step_count < read_step:
-                        if len(combine_data_line_array) == FLAGS.combine_data_line_count:
-                            sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_array, training)
+                        if read_step_count < read_step:
+                            temp_data_array = []
+                            temp_data_array.append(READ_SAVED_DATA_BUFFER[line_index])
+                            sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, temp_data_array, training)
                             step_count+=1
                             read_step_count+=1
-                    else:
-                        break
+                        else:
+                            break
 
-            if len(combine_data_line_array) < FLAGS.combine_data_line_count:
-                no_data = True
+                # 使った分は削除する
+                READ_SAVED_DATA_BUFFER = []
 
     if not no_data:
         new_shape = (read_step_count, get_parameter_data_count())
@@ -538,6 +534,8 @@ def insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_arra
             elif sensor_data_set_index == DATA_INDEX_TEMPERATURE and FLAGS.use_temperature:
                 data_array = sensor_data_set_array[sensor_data_set_index].split('_')
             elif sensor_data_set_index == DATA_INDEX_QUATERNION and FLAGS.use_quaternion:
+                data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+            elif sensor_data_set_index == DATA_INDEX_AMBIENT_LIGHT and FLAGS.use_ambient_light:
                 data_array = sensor_data_set_array[sensor_data_set_index].split('_')
 
             if data_array != None:
@@ -581,6 +579,8 @@ def get_parameter_data_count():
         ret_unit += 1
     if FLAGS.use_quaternion:
         ret_unit += 4
+    if FLAGS.use_ambient_light:
+        ret_unit += 1
 
     if FLAGS.expand_data_size > 0:
         return (ret_unit * FLAGS.expand_data_size * FLAGS.combine_data_line_count)
@@ -595,150 +595,156 @@ def main(_):
 
 
 if __name__ == '__main__':
-  parser = argparse.ArgumentParser()
-  parser.add_argument(
-      '--debug_log',
-      default=False,
-      help='enable debug log'
-  )
-  parser.add_argument(
-      '--learning_rate',
-      type=float,
-      default=0.01,
-      help='Initial learning rate.'
-  )
-  parser.add_argument(
-      '--max_steps',
-      type=int,
-      default=0,
-      help='0: unlimited'
-  )
-  parser.add_argument(
-      '--validation_count',
-      type=int,
-      default=1000,
-      help=''
-  )
-  parser.add_argument(
-      '--hidden_layrer_units',
-      type=str,
-      default='8,4',
-      help='Number of units in hidden layers.'
-  )
-  parser.add_argument(
-      '--batch_size',
-      type=int,
-      default=100,
-      help='Batch size.  Must divide evenly into the dataset sizes.'
-  )
-  parser.add_argument(
-      '--input_data_dir',
-      type=str,
-      default='data',
-      help='Directory to put the input data.'
-  )
-  parser.add_argument(
-      '--log_dir',
-      type=str,
-      default='./checkpoint',
-      help='Directory to put the log data.'
-  )
-  parser.add_argument(
-      '--max_save_checkpoint',
-      type=int,
-      default=1000,
-      help=''
-  )
-  parser.add_argument(
-      '--fake_data',
-      default=False,
-      help='If true, uses fake data for unit testing.',
-      action='store_true'
-  )
-  parser.add_argument(
-      '--saved_data_dir',
-      type=str,
-      default='./saved_train_data',
-      help='Directory to restore the saved data.'
-  )
-  parser.add_argument(
-      '--combine_data_line_count',
-      type=int,
-      default=1,
-      help=''
-  )
-  parser.add_argument(
-      '--max_finger_condition',
-      type=int,
-      default=2,
-      help='0: straight, 1: curve'
-  )
-  parser.add_argument(
-      '--random_learning',
-      default=True,
-      action='store_true',
-      help=''
-  )
-  parser.add_argument(
-      '--use_accel',
-      default=False,
-      action='store_true',
-      help='use accel for learning'
-  )
-  parser.add_argument(
-      '--use_gyro',
-      default=False,
-      action='store_true',
-      help='use gyro for learning'
-  )
-  parser.add_argument(
-      '--use_photo',
-      default=False,
-      action='store_true',
-      help='use photo reflector for learning'
-  )
-  parser.add_argument(
-      '--use_angle',
-      default=False,
-      action='store_true',
-      help='use angle for learning'
-  )
-  parser.add_argument(
-      '--use_temperature',
-      default=False,
-      action='store_true',
-      help='use temperature for learning'
-  )
-  parser.add_argument(
-      '--use_quaternion',
-      default=False,
-      action='store_true',
-      help='use quaternion for learning'
-  )
-  parser.add_argument(
-      '--expand_data_size',
-      type=int,
-      default=0,
-      help='0: As is'
-  )
-  parser.add_argument(
-      '--use_same_data_count',
-      default=False,
-      action='store_true',
-      help='use same data from each data files'
-  )
-  parser.add_argument(
-      '--enable_finger_flags',
-      type=int,
-      default=11111,
-      help='0: disable, none 0: enable, PRMIT order'
-  )
-  parser.add_argument(
-      '--optimizer',
-      type=str,
-      default='tf.train.AdamOptimizer',
-      help=''
-  )
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--debug_log',
+        default=False,
+        help='enable debug log'
+    )
+    parser.add_argument(
+        '--learning_rate',
+        type=float,
+        default=0.01,
+        help='Initial learning rate.'
+    )
+    parser.add_argument(
+        '--max_steps',
+        type=int,
+        default=0,
+        help='0: unlimited'
+    )
+    parser.add_argument(
+        '--validation_count',
+        type=int,
+        default=1000,
+        help=''
+    )
+    parser.add_argument(
+        '--hidden_layrer_units',
+        type=str,
+        default='8,4',
+        help='Number of units in hidden layers.'
+    )
+    parser.add_argument(
+        '--batch_size',
+        type=int,
+        default=100,
+        help='Batch size.  Must divide evenly into the dataset sizes.'
+    )
+    parser.add_argument(
+        '--input_data_dir',
+        type=str,
+        default='data',
+        help='Directory to put the input data.'
+    )
+    parser.add_argument(
+        '--log_dir',
+        type=str,
+        default='./checkpoint',
+        help='Directory to put the log data.'
+    )
+    parser.add_argument(
+        '--max_save_checkpoint',
+        type=int,
+        default=1000,
+        help=''
+    )
+    parser.add_argument(
+        '--fake_data',
+        default=False,
+        help='If true, uses fake data for unit testing.',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--saved_data_dir',
+        type=str,
+        default='./saved_train_data',
+        help='Directory to restore the saved data.'
+    )
+    parser.add_argument(
+        '--combine_data_line_count',
+        type=int,
+        default=1,
+        help=''
+    )
+    parser.add_argument(
+        '--max_finger_condition',
+        type=int,
+        default=2,
+        help='0: straight, 1: curve'
+    )
+    parser.add_argument(
+        '--random_learning',
+        type=int,
+        default=1,
+        help='0: no random learning, none 0: random learning'
+    )
+    parser.add_argument(
+        '--use_accel',
+        default=False,
+        action='store_true',
+        help='use accel for learning'
+    )
+    parser.add_argument(
+        '--use_gyro',
+        default=False,
+        action='store_true',
+        help='use gyro for learning'
+    )
+    parser.add_argument(
+        '--use_photo',
+        default=False,
+        action='store_true',
+        help='use photo reflector for learning'
+    )
+    parser.add_argument(
+        '--use_angle',
+        default=False,
+        action='store_true',
+        help='use angle for learning'
+    )
+    parser.add_argument(
+        '--use_temperature',
+        default=False,
+        action='store_true',
+        help='use temperature for learning'
+    )
+    parser.add_argument(
+        '--use_quaternion',
+        default=False,
+        action='store_true',
+        help='use quaternion for learning'
+    )
+    parser.add_argument(
+        '--use_ambient_light',
+        default=False,
+        action='store_true',
+        help='use ambient light for learning'
+    )
+    parser.add_argument(
+        '--expand_data_size',
+        type=int,
+        default=0,
+        help='0: As is'
+    )
+    parser.add_argument(
+        '--use_same_data_count',
+        default=False,
+        action='store_true',
+        help='use same data from each data files'
+    )
+    parser.add_argument(
+        '--enable_finger_flags',
+        type=int,
+        default=11111,
+        help='0: disable, none 0: enable, PRMIT order'
+    )
+    parser.add_argument(
+        '--optimizer',
+        type=str,
+        default='tf.train.AdamOptimizer',
+        help=''
+    )
 
-  FLAGS, unparsed = parser.parse_known_args()
-  tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+    FLAGS, unparsed = parser.parse_known_args()
+    tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
