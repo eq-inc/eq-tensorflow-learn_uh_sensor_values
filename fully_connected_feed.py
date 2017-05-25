@@ -204,7 +204,11 @@ def run_training():
         hidden_layer_units_array = FLAGS.hidden_layrer_units.split(',')
         for hidden_layer_units in hidden_layer_units_array:
             layer_units_array.append(int(hidden_layer_units))
-        layer_units_array.append(FLAGS.max_finger_condition ** ENABLE_FINGER_COUNT)
+        if FLAGS.use_rps_mode:
+            # 3layer for rock-paper-scissors mode
+            layer_units_array.append(3)
+        else:
+            layer_units_array.append(FLAGS.max_finger_condition ** ENABLE_FINGER_COUNT)
         logits = uh_sensor_values.inference(sensor_values_placeholder, layer_units_array)
 
         # Add to the Graph the Ops for loss calculation.
@@ -732,6 +736,12 @@ if __name__ == '__main__':
         default=False,
         action='store_true',
         help='use same data from each data files'
+    )
+    parser.add_argument(
+        '--use_rps_mode',
+        default=False,
+        action='store_true',
+        help='use rock-paper-scissors mode'
     )
     parser.add_argument(
         '--enable_finger_flags',
