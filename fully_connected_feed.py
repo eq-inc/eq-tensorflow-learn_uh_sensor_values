@@ -451,7 +451,7 @@ def read_sensor_data_sets(
                             break
 
                 # 使った分は削除する
-                READ_SAVED_DATA_BUFFER = []
+                READ_SAVED_DATA_BUFFER = READ_SAVED_DATA_BUFFER[read_step_count:]
 
     else:
         data_file_flags = train_data_file.sensor_data_file[len(FLAGS.input_data_dir + "/sensor_data_"):]

@@ -19,6 +19,7 @@ from six.moves import xrange  # pylint: disable=redefined-builtin
 import math
 import sys
 import tensorflow as tf
+import numpy as np
 
 def inference(sensor_values, layer_units_array):
     """Build the Unlimited Hand - sensor values model up to where it may be used for inference.
@@ -42,9 +43,13 @@ def inference(sensor_values, layer_units_array):
             name = 'softmax_linear'
 
         with tf.name_scope(name):
+            # weights = tf.Variable(
+            #     tf.truncated_normal([layer_units_array[layer_index], layer_units_array[layer_index + 1]],
+            #                         stddev=1.0 / math.sqrt(float(layer_units_array[layer_index]))),
+            #     name='weights')
             weights = tf.Variable(
                 tf.truncated_normal([layer_units_array[layer_index], layer_units_array[layer_index + 1]],
-                                    stddev=1.0 / math.sqrt(float(layer_units_array[layer_index]))),
+                                    stddev=np.sqrt(2 / np.prod(values.get_shape().as_list()[1:]))),
                 name='weights')
             biases = tf.Variable(tf.zeros([layer_units_array[layer_index + 1]]), name='biases')
 
