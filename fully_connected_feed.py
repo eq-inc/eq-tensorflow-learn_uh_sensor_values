@@ -445,6 +445,7 @@ def read_sensor_data_sets(
                             temp_data_array = []
                             temp_data_array.append(READ_SAVED_DATA_BUFFER[line_index])
                             sensor_data_sets, value_data_sets = insert_sensor_data(sensor_data_sets, value_data_sets, temp_data_array, training)
+
                             step_count+=1
                             read_step_count+=1
                         else:
@@ -533,8 +534,12 @@ def insert_sensor_data(sensor_data_sets, value_data_sets, combine_data_line_arra
                 data_array = sensor_data_set_array[sensor_data_set_index].split('_')
             elif sensor_data_set_index == DATA_INDEX_PHOTO_REFLECTOR and FLAGS.use_photo:
                 data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                if len(data_array) < 8:
+                    print('Illegal data: %s' % (sensor_data_set_array))
             elif sensor_data_set_index == DATA_INDEX_ANGLE and FLAGS.use_angle:
                 data_array = sensor_data_set_array[sensor_data_set_index].split('_')
+                if len(data_array) < 3:
+                    print('Illegal data: %s' % (sensor_data_set_array))
             elif sensor_data_set_index == DATA_INDEX_TEMPERATURE and FLAGS.use_temperature:
                 data_array = sensor_data_set_array[sensor_data_set_index].split('_')
             elif sensor_data_set_index == DATA_INDEX_QUATERNION and FLAGS.use_quaternion:
@@ -599,6 +604,8 @@ def main(_):
 
 
 if __name__ == '__main__':
+    print(sys.argv)
+    
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--debug_log',
